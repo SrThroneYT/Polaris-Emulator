@@ -3,19 +3,19 @@ package com.eu.habbo.habbohotel.catalog;
 import com.eu.habbo.Emulator;
 import com.eu.habbo.habbohotel.items.FurnitureType;
 import com.eu.habbo.habbohotel.items.Item;
+import com.eu.habbo.habbohotel.items.rentable.RentableFurniture;
 import com.eu.habbo.messages.ISerialize;
 import com.eu.habbo.messages.ServerMessage;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.HashMap;
-import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class CatalogItem implements ISerialize, Runnable, Comparable<CatalogItem> {
     private static final Logger LOGGER = LoggerFactory.getLogger(CatalogItem.class);
@@ -31,24 +31,21 @@ public class CatalogItem implements ISerialize, Runnable, Comparable<CatalogItem
     private boolean allowGift = false;
     private int limitedSells;
 
-
     private String extradata;
-
 
     private boolean clubOnly;
 
-
     private boolean haveOffer;
-
 
     private int offerId;
 
-
     private boolean needsUpdate;
-
 
     private int orderNumber;
 
+    private int rentDays;
+
+    private int habbiconId;
 
     private Map<Integer, Integer> bundle;
 
@@ -58,24 +55,21 @@ public class CatalogItem implements ISerialize, Runnable, Comparable<CatalogItem
     }
 
     public static boolean haveOffer(CatalogItem item) {
-        if (!item.haveOffer)
-            return false;
+        if (!item.haveOffer || item.getHabbiconId() > 0) return false;
 
-        if (item.getAmount() != 1)
-            return false;
+        if (item.getAmount() != 1) return false;
 
-        if (item.isLimited())
-            return false;
+        if (item.isLimited()) return false;
 
-        if (item.bundle.size() > 1)
-            return false;
+        if (item.bundle.size() > 1) return false;
 
-        if (item.getName().toLowerCase().startsWith("cf_") || item.getName().toLowerCase().startsWith("cfc_"))
-            return false;
+        if (item.getName().toLowerCase().startsWith("cf_")
+                || item.getName().toLowerCase().startsWith("cfc_")) return false;
 
         for (Item i : item.getBaseItems()) {
-            if (i.getName().toLowerCase().startsWith("cf_") || i.getName().toLowerCase().startsWith("cfc_") || i.getName().toLowerCase().startsWith("rentable_bot"))
-                return false;
+            if (i.getName().toLowerCase().startsWith("cf_")
+                    || i.getName().toLowerCase().startsWith("cfc_")
+                    || i.getName().toLowerCase().startsWith("rentable_bot")) return false;
         }
 
         return !item.getName().toLowerCase().startsWith("rentable_bot_");
@@ -101,9 +95,21 @@ public class CatalogItem implements ISerialize, Runnable, Comparable<CatalogItem
         this.haveOffer = set.getBoolean("have_offer");
         this.offerId = set.getInt("offer_id");
         this.orderNumber = set.getInt("order_number");
+        this.rentDays = RentableFurniture.readRentDays(set);
+        this.habbiconId = 0;
+        for (int column = 1; column <= set.getMetaData().getColumnCount(); column++) {
+            if ("habbicon_id".equalsIgnoreCase(set.getMetaData().getColumnLabel(column))) {
+                this.habbiconId = set.getInt("habbicon_id");
+                break;
+            }
+        }
 
         this.bundle = new HashMap<>();
         this.loadBundle();
+    }
+
+    public int getHabbiconId() {
+        return this.habbiconId;
     }
 
     public int getId() {
@@ -151,7 +157,8 @@ public class CatalogItem implements ISerialize, Runnable, Comparable<CatalogItem
     }
 
     public int getLimitedSells() {
-        CatalogLimitedConfiguration ltdConfig = Emulator.getGameEnvironment().getCatalogManager().getLimitedConfig(this);
+        CatalogLimitedConfiguration ltdConfig =
+                Emulator.getGameEnvironment().getCatalogManager().getLimitedConfig(this);
 
         if (ltdConfig != null) {
             return this.limitedStack - ltdConfig.available();
@@ -170,6 +177,14 @@ public class CatalogItem implements ISerialize, Runnable, Comparable<CatalogItem
 
     public boolean isHaveOffer() {
         return this.haveOffer;
+    }
+
+    public int getRentDays() {
+        return this.rentDays;
+    }
+
+    public boolean isRentOffer() {
+        return this.rentDays > 0;
     }
 
     public int getOfferId() {
@@ -205,22 +220,17 @@ public class CatalogItem implements ISerialize, Runnable, Comparable<CatalogItem
 
         this.needsUpdate = true;
 
-        if (this.limitedSells == this.limitedStack) {
-            Emulator.getGameEnvironment().getCatalogManager().moveCatalogItem(this, Emulator.getConfig().getInt("catalog.ltd.page.soldout"));
-        }
-
         Emulator.getThreading().run(this);
     }
 
     public Set<Item> getBaseItems() {
-        Set<Item> items = new HashSet<>();
+        Set<Item> items = new LinkedHashSet<>();
 
         if (!this.itemId.isEmpty()) {
             String[] itemIds = this.itemId.split(";");
 
             for (String itemId : itemIds) {
-                if (itemId.isEmpty())
-                    continue;
+                if (itemId.isEmpty()) continue;
 
                 if (itemId.contains(":")) {
                     itemId = itemId.split(":")[0];
@@ -231,14 +241,16 @@ public class CatalogItem implements ISerialize, Runnable, Comparable<CatalogItem
 
                     identifier = Integer.parseInt(itemId);
                 } catch (Exception e) {
-                    LOGGER.info("Invalid value ({}) for items_base column for catalog_item id ({}). Value must be integer or of the format of integer:amount;integer:amount", itemId, this.id);
+                    LOGGER.info(
+                            "Invalid value ({}) for items_base column for catalog_item id ({}). Value must be integer or of the format of integer:amount;integer:amount",
+                            itemId,
+                            this.id);
                     continue;
                 }
                 if (identifier > 0) {
                     Item item = Emulator.getGameEnvironment().getItemManager().getItem(identifier);
 
-                    if (item != null)
-                        items.add(item);
+                    if (item != null) items.add(item);
                 }
             }
         }
@@ -247,10 +259,8 @@ public class CatalogItem implements ISerialize, Runnable, Comparable<CatalogItem
     }
 
     public int getItemAmount(int id) {
-        if (this.bundle.containsKey(id))
-            return this.bundle.get(id);
-        else
-            return this.amount;
+        if (this.bundle.containsKey(id)) return this.bundle.get(id);
+        else return this.amount;
     }
 
     public Map<Integer, Integer> getBundle() {
@@ -297,15 +307,23 @@ public class CatalogItem implements ISerialize, Runnable, Comparable<CatalogItem
     public void serialize(ServerMessage message) {
         message.appendInt(this.getId());
         message.appendString(this.getName());
-        message.appendBoolean(false);
+        message.appendBoolean(this.isRentOffer());
         message.appendInt(this.getCredits());
         message.appendInt(this.getPoints());
         message.appendInt(this.getPointsType());
-        message.appendBoolean(this.allowGift); //Can gift
+        message.appendBoolean(this.habbiconId <= 0 && this.allowGift);
 
-        Set<Item> items = this.getBaseItems();
+        Set<Item> items = this.habbiconId > 0 ? Set.of() : this.getBaseItems();
 
-        message.appendInt(items.size());
+        message.appendInt(this.habbiconId > 0 ? 1 : items.size());
+
+        if (this.habbiconId > 0) {
+            message.appendString("habbicon");
+            message.appendInt(this.habbiconId);
+            message.appendString(Integer.toString(this.habbiconId));
+            message.appendInt(1);
+            message.appendBoolean(false);
+        }
 
         for (Item item : items) {
             message.appendString(item.getType().code.toLowerCase());
@@ -315,7 +333,9 @@ public class CatalogItem implements ISerialize, Runnable, Comparable<CatalogItem
             } else {
                 message.appendInt(item.getSpriteId());
 
-                if (this.getName().contains("wallpaper_single") || this.getName().contains("floor_single") || this.getName().contains("landscape_single")) {
+                if (this.getName().contains("wallpaper_single")
+                        || this.getName().contains("floor_single")
+                        || this.getName().contains("landscape_single")) {
                     message.appendString(this.getName().split("_")[2]);
                 } else if (item.getName().contains("bot") && item.getType() == FurnitureType.ROBOT) {
                     boolean lookFound = false;
@@ -350,7 +370,7 @@ public class CatalogItem implements ISerialize, Runnable, Comparable<CatalogItem
 
         message.appendInt(this.clubOnly);
         message.appendBoolean(haveOffer(this));
-        message.appendBoolean(false); //unknown
+        message.appendBoolean(false);
         message.appendString(this.name + ".png");
         message.appendString(this.itemId == null ? "" : this.itemId);
         message.appendBoolean(this.haveOffer);
@@ -359,7 +379,9 @@ public class CatalogItem implements ISerialize, Runnable, Comparable<CatalogItem
     @Override
     public void run() {
         if (this.needsUpdate) {
-            try (Connection connection = Emulator.getDatabase().getDataSource().getConnection(); PreparedStatement statement = connection.prepareStatement("UPDATE catalog_items SET limited_sells = ?, page_id = ? WHERE id = ?")) {
+            try (Connection connection = Emulator.getDatabase().getDataSource().getConnection();
+                    PreparedStatement statement = connection.prepareStatement(
+                            "UPDATE catalog_items SET limited_sells = ?, page_id = ? WHERE id = ?")) {
                 statement.setInt(1, this.getLimitedSells());
                 statement.setInt(2, this.pageId);
                 statement.setInt(3, this.getId());

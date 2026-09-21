@@ -1,5 +1,7 @@
 package com.eu.habbo.habbohotel.items.interactions.wired.conditions;
 
+import com.eu.habbo.WiredPlatform;
+import com.eu.habbo.core.ConfigurationManager;
 import com.eu.habbo.habbohotel.items.Item;
 import com.eu.habbo.habbohotel.items.interactions.InteractionWiredCondition;
 import com.eu.habbo.habbohotel.items.interactions.wired.WiredComparison;
@@ -13,7 +15,6 @@ import com.eu.habbo.habbohotel.wired.WiredConditionType;
 import com.eu.habbo.habbohotel.wired.core.WiredContext;
 import com.eu.habbo.habbohotel.wired.core.WiredManager;
 import com.eu.habbo.messages.ServerMessage;
-
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -36,7 +37,8 @@ public class WiredConditionChestHasItemType extends InteractionWiredCondition {
         super(set, baseItem);
     }
 
-    public WiredConditionChestHasItemType(int id, int userId, Item item, String extradata, int limitedStack, int limitedSells) {
+    public WiredConditionChestHasItemType(
+            int id, int userId, Item item, String extradata, int limitedStack, int limitedSells) {
         super(id, userId, item, extradata, limitedStack, limitedSells);
     }
 
@@ -48,7 +50,8 @@ public class WiredConditionChestHasItemType extends InteractionWiredCondition {
         int total = 0;
         for (Integer id : this.chestIds) {
             HabboItem item = room.getHabboItem(id);
-            if (item instanceof InteractionWiredChest chest) {
+            // Wired only reaches a chest whose owner upgraded it to answer wired.
+            if (item instanceof InteractionWiredChest chest && chest.answersWired()) {
                 total += chest.getContents().count(ChestStorage.KIND_FURNI, this.baseItemId);
             }
         }
@@ -68,9 +71,31 @@ public class WiredConditionChestHasItemType extends InteractionWiredCondition {
         this.amount = (params.length > 1) ? Math.max(1, params[1]) : 1;
         this.comparison = (params.length > 2) ? WiredComparison.normalize(params[2]) : WiredComparison.GREATER_EQUAL;
 
+        return this.selectChests(settings);
+    }
+
+    /**
+     * Keeps only the selected furni that are chests the room knows, and no more of them than the hotel
+     * lets a wired box select - a plain furni or an id nobody can look up is not a chest.
+     */
+    private boolean selectChests(WiredSettings settings) {
+        int[] furniIds = (settings.getFurniIds() != null) ? settings.getFurniIds() : new int[0];
+        ConfigurationManager config = WiredPlatform.configuration();
+        int cap = (config == null) ? Integer.MAX_VALUE : config.getInt("hotel.wired.furni.selection.count");
+        if (furniIds.length > cap) {
+            return false;
+        }
+
+        Room room = (WiredPlatform.gameEnvironment() == null)
+                ? null
+                : WiredPlatform.gameEnvironment().getRoomManager().getRoom(this.getRoomId());
+        if (room == null) {
+            return false;
+        }
+
         this.chestIds.clear();
-        if (settings.getFurniIds() != null) {
-            for (int id : settings.getFurniIds()) {
+        for (int id : furniIds) {
+            if (room.getHabboItem(id) instanceof InteractionWiredChest) {
                 this.chestIds.add(id);
             }
         }
@@ -84,7 +109,8 @@ public class WiredConditionChestHasItemType extends InteractionWiredCondition {
 
     @Override
     public String getWiredData() {
-        return WiredManager.getGson().toJson(new JsonData(this.baseItemId, this.amount, this.comparison, this.chestIds));
+        return WiredManager.getGson()
+                .toJson(new JsonData(this.baseItemId, this.amount, this.comparison, this.chestIds));
     }
 
     @Override

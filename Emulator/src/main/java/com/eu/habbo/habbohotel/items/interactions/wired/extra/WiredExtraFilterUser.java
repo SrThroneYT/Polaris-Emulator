@@ -8,7 +8,6 @@ import com.eu.habbo.habbohotel.rooms.Room;
 import com.eu.habbo.habbohotel.rooms.RoomUnit;
 import com.eu.habbo.habbohotel.wired.core.WiredManager;
 import com.eu.habbo.messages.ServerMessage;
-
 import java.sql.ResultSet;
 import java.sql.SQLException;
 
@@ -35,7 +34,11 @@ public class WiredExtraFilterUser extends InteractionWiredExtra {
     public boolean saveData(WiredSettings settings, GameClient gameClient) {
         int value = (settings.getIntParams().length > 0) ? settings.getIntParams()[0] : 0;
 
-        if (value == 0 && settings.getStringParam() != null && !settings.getStringParam().isEmpty()) {
+        // The string is the fallback for a dialog that only has a text field: it is read when no
+        // int was sent at all, never over an int that merely equals the current value.
+        if (settings.getIntParams().length == 0
+                && settings.getStringParam() != null
+                && !settings.getStringParam().isEmpty()) {
             try {
                 value = Integer.parseInt(settings.getStringParam());
             } catch (NumberFormatException ignored) {
@@ -96,9 +99,7 @@ public class WiredExtraFilterUser extends InteractionWiredExtra {
     }
 
     @Override
-    public void onWalk(RoomUnit roomUnit, Room room, Object[] objects) throws Exception {
-
-    }
+    public void onWalk(RoomUnit roomUnit, Room room, Object[] objects) throws Exception {}
 
     @Override
     public boolean hasConfiguration() {

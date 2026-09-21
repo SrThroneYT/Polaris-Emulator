@@ -6,7 +6,6 @@ import com.eu.habbo.habbohotel.rooms.RoomUnit;
 import com.eu.habbo.habbohotel.wired.WiredConditionType;
 import com.eu.habbo.habbohotel.wired.core.WiredContext;
 import com.eu.habbo.habbohotel.wired.core.WiredSourceUtil;
-
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
@@ -17,13 +16,14 @@ import java.util.List;
  * reuses the same tag text dialog via NOT_ACTOR_WEARS_BADGE.
  */
 public class WiredConditionNotHasTag extends WiredConditionHasTag {
-    public static final WiredConditionType type = WiredConditionType.NOT_ACTOR_WEARS_BADGE;
+    public static final WiredConditionType type = WiredConditionType.NOT_USER_TAG;
 
     public WiredConditionNotHasTag(ResultSet set, Item baseItem) throws SQLException {
         super(set, baseItem);
     }
 
-    public WiredConditionNotHasTag(int id, int userId, Item item, String extradata, int limitedStack, int limitedSells) {
+    public WiredConditionNotHasTag(
+            int id, int userId, Item item, String extradata, int limitedStack, int limitedSells) {
         super(id, userId, item, extradata, limitedStack, limitedSells);
     }
 

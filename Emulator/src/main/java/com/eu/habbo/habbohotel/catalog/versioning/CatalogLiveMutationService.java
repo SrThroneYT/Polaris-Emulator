@@ -1,6 +1,8 @@
 package com.eu.habbo.habbohotel.catalog.versioning;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -87,8 +89,8 @@ public final class CatalogLiveMutationService {
 
     public CatalogDraftValidationResult validateLive() {
         try (Connection connection = dataSource.getConnection()) {
-            CatalogRuntimeState state = versions.lockRuntimeState(connection);
-            CatalogVersionSnapshot active = loadPhysicalLive(connection, state);
+            CatalogRuntimeState state = versions.readRuntimeState(connection);
+            CatalogVersionSnapshot active = loadPhysicalLiveForRead(connection, state);
             if (validation == null) {
                 return new CatalogDraftValidationResult(
                         active.version().revision(), new CatalogValidationReport(List.of()));
@@ -96,6 +98,34 @@ public final class CatalogLiveMutationService {
             return new CatalogDraftValidationResult(active.version().revision(), validation.report(connection, active));
         } catch (SQLException exception) {
             throw new CatalogVersioningException("Live catalog validation failed", exception);
+        }
+    }
+
+    /**
+     * Reads everything a Manager session needs in a single non-locking pass.
+     *
+     * <p>{@link #loadLive()} followed by {@link #validateLive()} reads the entire catalog twice and locks every row of
+     * it both times. A session open only reads, so it does neither.
+     */
+    public CatalogLiveSession openLiveSession() {
+        try (Connection connection = dataSource.getConnection()) {
+            CatalogRuntimeState state = versions.readRuntimeState(connection);
+            CatalogVersionSnapshot active = loadPhysicalLiveForRead(connection, state);
+            CatalogValidationReport report =
+                    validation == null ? new CatalogValidationReport(List.of()) : validation.report(connection, active);
+            return new CatalogLiveSession(
+                    active, new CatalogDraftValidationResult(active.version().revision(), report));
+        } catch (SQLException exception) {
+            throw new CatalogVersioningException("Live catalog session open failed", exception);
+        }
+    }
+
+    /** Reads the live catalog without locking it, for callers that only inspect it. */
+    public CatalogVersionSnapshot loadLiveForRead() {
+        try (Connection connection = dataSource.getConnection()) {
+            return loadPhysicalLiveForRead(connection, versions.readRuntimeState(connection));
+        } catch (SQLException exception) {
+            throw new CatalogVersioningException("Live catalog load failed", exception);
         }
     }
 
@@ -164,7 +194,7 @@ public final class CatalogLiveMutationService {
             connection.setAutoCommit(false);
             try {
                 CatalogRuntimeState state = versions.lockRuntimeState(connection);
-                CatalogVersionSnapshot active = loadPhysicalLive(connection, state);
+                CatalogVersionSnapshot active = loadPhysicalLive(connection, state, CatalogMutationScope.of(requests));
                 if (active.version().status() != CatalogVersionStatus.PUBLISHED) {
                     throw new IllegalStateException("Live catalog state is not available");
                 }
@@ -439,6 +469,35 @@ public final class CatalogLiveMutationService {
         CatalogChangeEntry build(Connection connection, CatalogVersionSnapshot active) throws SQLException;
     }
 
+    private CatalogVersionSnapshot loadPhysicalLiveForRead(Connection connection, CatalogRuntimeState state)
+            throws SQLException {
+        CatalogVersion version = versions.loadVersion(connection, state.activeVersionId());
+        if (version.status() != CatalogVersionStatus.PUBLISHED) {
+            throw new IllegalStateException("Live catalog state is not available");
+        }
+        return liveSnapshots == null
+                ? versions.loadSnapshot(connection, state.activeVersionId())
+                : liveSnapshots.loadForRead(connection, version);
+    }
+
+    /**
+     * Reads what a batch of mutations can reach, rather than the whole catalog.
+     *
+     * <p>Every page is still read - the rules that judge a page walk the tree around it, and pages
+     * are cheap. Offers are not: a live catalog holds 112,000 of them and a save touches a handful,
+     * so reading and locking all of them cost about 200 ms per edit for nothing.
+     */
+    private CatalogVersionSnapshot loadPhysicalLive(
+            Connection connection, CatalogRuntimeState state, CatalogMutationScope scope) throws SQLException {
+        CatalogVersion version = versions.loadVersion(connection, state.activeVersionId());
+        if (version.status() != CatalogVersionStatus.PUBLISHED) {
+            throw new IllegalStateException("Live catalog state is not available");
+        }
+        return liveSnapshots == null
+                ? versions.loadSnapshot(connection, state.activeVersionId())
+                : liveSnapshots.loadForMutation(connection, version, scope);
+    }
+
     private CatalogVersionSnapshot loadPhysicalLive(Connection connection, CatalogRuntimeState state)
             throws SQLException {
         CatalogVersion version = versions.loadVersion(connection, state.activeVersionId());
@@ -487,7 +546,6 @@ public final class CatalogLiveMutationService {
                                 .orElseThrow(() -> new IllegalArgumentException(
                                         "Live catalog offer not found: " + request.entityId()));
                 };
-        validateIdentity(request);
         return new CatalogChangeEntry(
                 0,
                 request.entityType(),
@@ -495,7 +553,7 @@ public final class CatalogLiveMutationService {
                 request.entityId(),
                 request.operation(),
                 beforeJson,
-                request.operation() == CatalogChangeOperation.DELETE ? null : request.afterJson());
+                request.operation() == CatalogChangeOperation.DELETE ? null : canonicalAfterJson(request));
     }
 
     private CatalogChangeEntry buildCreate(Connection connection, CatalogLiveMutationRequest request)
@@ -530,19 +588,46 @@ public final class CatalogLiveMutationService {
         };
     }
 
-    private void validateIdentity(CatalogLiveMutationRequest request) {
-        if (request.operation() == CatalogChangeOperation.DELETE) return;
-        boolean valid =
-                switch (request.entityType()) {
-                    case PAGE -> {
-                        CatalogPageSnapshot page = gson.fromJson(request.afterJson(), CatalogPageSnapshot.class);
-                        yield page.pageId() == request.entityId() && page.catalogType() == request.catalogType();
-                    }
-                    case OFFER -> {
-                        CatalogOfferSnapshot offer = gson.fromJson(request.afterJson(), CatalogOfferSnapshot.class);
-                        yield offer.offerId() == request.entityId() && offer.catalogType() == request.catalogType();
-                    }
-                };
-        if (!valid) throw new IllegalArgumentException("Live catalog payload identity does not match the request");
+    /**
+     * Rewrites the payload as the full snapshot the change journal and the live writer read back.
+     *
+     * <p>The editor sends a draft: {@link CatalogDraftOfferData} and {@link CatalogDraftPageData}
+     * carry the editable fields but no identity, because the request already names the catalog and
+     * the entity. Creation has always rebuilt the snapshot from that draft; updates stored the draft
+     * verbatim, so anything reading the entry back as a snapshot - {@code JdbcCatalogLiveEntityWriter},
+     * {@code CatalogLiveValidationGuard}, and the identity check that used to live here - hit a
+     * payload with a null {@code catalogType} and an offer id of zero.
+     *
+     * <p>A payload that does carry its own identity is still checked against the request rather than
+     * silently overwritten.
+     */
+    private String canonicalAfterJson(CatalogLiveMutationRequest request) {
+        JsonObject payload = JsonParser.parseString(request.afterJson()).getAsJsonObject();
+        validateIdentity(request, payload);
+        return switch (request.entityType()) {
+            case PAGE ->
+                gson.toJson(gson.fromJson(payload, CatalogDraftPageData.class)
+                        .withId(request.catalogType(), request.entityId()));
+            case OFFER ->
+                gson.toJson(gson.fromJson(payload, CatalogDraftOfferData.class)
+                        .withId(request.catalogType(), request.entityId()));
+        };
+    }
+
+    private void validateIdentity(CatalogLiveMutationRequest request, JsonObject payload) {
+        String idField = request.entityType() == CatalogEntityType.PAGE ? "pageId" : "offerId";
+        boolean mismatch = payload.has(idField)
+                && !payload.get(idField).isJsonNull()
+                && payload.get(idField).getAsInt() != request.entityId();
+        if (!mismatch
+                && payload.has("catalogType")
+                && !payload.get("catalogType").isJsonNull()) {
+            mismatch = !request.catalogType()
+                    .name()
+                    .equals(payload.get("catalogType").getAsString());
+        }
+        if (mismatch) {
+            throw new IllegalArgumentException("Live catalog payload identity does not match the request");
+        }
     }
 }

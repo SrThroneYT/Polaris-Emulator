@@ -706,7 +706,9 @@ public final class WiredEngine {
      * This mirrors trigger and condition eligibility without executing regular effects.
      */
     public boolean shouldSuppressUserSaysOutput(WiredEvent event) {
-        if (event == null || event.getType() != WiredEvent.Type.USER_SAYS) {
+        if (event == null
+                || (event.getType() != WiredEvent.Type.USER_SAYS
+                        && event.getType() != WiredEvent.Type.USER_SAYS_USERNAME)) {
             return false;
         }
 
@@ -988,6 +990,26 @@ public final class WiredEngine {
     }
 
     /**
+     * Clear the caches that go stale when a room's wired INDEX changes
+     * (furni added/removed/moved, wired saved). Deliberately does NOT clear the
+     * abuse-limit state (rate-limit windows and the rate-limit ban): those are
+     * about execution frequency, not which furni exist, and coupling them to
+     * index invalidation let a rate-limit-banned owner reset the ban on demand
+     * by dragging any furniture one tile. Use {@link #clearRoomExecutionCaches}
+     * for a genuine full reset.
+     *
+     * <p>Package-private on purpose: it is an internal helper for
+     * {@link WiredManager#invalidateRoom}, and keeping it off the public
+     * surface preserves the frozen plugin ABI (WiredPublicSurfaceCompatibilityTest).
+     * @param roomId the room ID
+     */
+    void clearRoomIndexCaches(int roomId) {
+        clearRoomRecursionDepth(roomId);
+        clearRoomSourceStackCache(roomId);
+        clearRoomDiagnostics(roomId);
+    }
+
+    /**
      * Clear all execution-related caches.
      */
     public void clearAllExecutionCaches() {
@@ -1021,6 +1043,16 @@ public final class WiredEngine {
      */
     public WiredRoomDiagnostics.Snapshot getDiagnosticsSnapshot(int roomId) {
         return this.executionGuard.snapshot(roomId);
+    }
+
+    /**
+     * Note a furni that cannot be fed by anything in its room. Not an execution failure, so it does
+     * not go through the guard's counters - it only needs to reach the monitor.
+     */
+    public void noteUnreachable(int roomId, String reason, String sourceLabel, int sourceId) {
+        this.executionGuard
+                .diagnostics(roomId)
+                .recordUnreachable(System.currentTimeMillis(), reason, sourceLabel, sourceId);
     }
 
     private void handleRateLimit(

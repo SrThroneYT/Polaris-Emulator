@@ -13,7 +13,6 @@ import com.eu.habbo.habbohotel.wired.core.WiredContext;
 import com.eu.habbo.habbohotel.wired.core.WiredManager;
 import com.eu.habbo.habbohotel.wired.core.WiredSourceUtil;
 import com.eu.habbo.messages.ServerMessage;
-
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.sql.ResultSet;
@@ -35,7 +34,7 @@ public class WiredConditionUserInRange extends InteractionWiredCondition {
     private static final int QUANTIFIER_ALL = 0;
     private static final int QUANTIFIER_ANY = 1;
 
-    public static final WiredConditionType type = WiredConditionType.HAS_ALTITUDE;
+    public static final WiredConditionType type = WiredConditionType.USER_RANGE;
 
     private int comparison = COMPARISON_EQUAL;
     private double radius = 0.0D;
@@ -46,7 +45,8 @@ public class WiredConditionUserInRange extends InteractionWiredCondition {
         super(set, baseItem);
     }
 
-    public WiredConditionUserInRange(int id, int userId, Item item, String extradata, int limitedStack, int limitedSells) {
+    public WiredConditionUserInRange(
+            int id, int userId, Item item, String extradata, int limitedStack, int limitedSells) {
         super(id, userId, item, extradata, limitedStack, limitedSells);
     }
 
@@ -92,12 +92,9 @@ public class WiredConditionUserInRange extends InteractionWiredCondition {
 
     @Override
     public String getWiredData() {
-        return WiredManager.getGson().toJson(new JsonData(
-                this.comparison,
-                this.formatRadius(this.radius),
-                this.userSource,
-                this.quantifier
-        ));
+        return WiredManager.getGson()
+                .toJson(new JsonData(
+                        this.comparison, this.formatRadius(this.radius), this.userSource, this.quantifier));
     }
 
     @Override
@@ -173,6 +170,19 @@ public class WiredConditionUserInRange extends InteractionWiredCondition {
         return true;
     }
 
+    /**
+     * The dialog offers three operators against the radius, and until now every one of them behaved
+     * as "within". They now mean what they say, with {@code equals} keeping the historical inclusive
+     * reading so a box saved before this change evaluates exactly as it did.
+     */
+    private boolean matchesRadius(double distance) {
+        return switch (this.comparison) {
+            case COMPARISON_LESS -> distance < this.radius;
+            case COMPARISON_GREATER -> distance > this.radius;
+            default -> distance <= this.radius;
+        };
+    }
+
     private boolean isInsideRange(RoomTile origin, RoomUnit unit) {
         if (unit == null) {
             return false;
@@ -183,7 +193,7 @@ public class WiredConditionUserInRange extends InteractionWiredCondition {
             return false;
         }
 
-        return origin.distance(tile) <= this.radius;
+        return this.matchesRadius(origin.distance(tile));
     }
 
     int normalizeComparison(int value) {
@@ -204,7 +214,9 @@ public class WiredConditionUserInRange extends InteractionWiredCondition {
 
     double normalizeRadius(double value) {
         double clampedValue = Math.max(0.0D, value);
-        return BigDecimal.valueOf(clampedValue).setScale(2, RoundingMode.HALF_UP).doubleValue();
+        return BigDecimal.valueOf(clampedValue)
+                .setScale(2, RoundingMode.HALF_UP)
+                .doubleValue();
     }
 
     double parseRadiusOrDefault(String value) {

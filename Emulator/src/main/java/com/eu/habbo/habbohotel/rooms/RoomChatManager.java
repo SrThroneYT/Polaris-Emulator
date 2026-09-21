@@ -5,11 +5,14 @@ import com.eu.habbo.habbohotel.bots.Bot;
 import com.eu.habbo.habbohotel.commands.CommandHandler;
 import com.eu.habbo.habbohotel.items.interactions.InteractionMuteArea;
 import com.eu.habbo.habbohotel.items.interactions.InteractionTalkingFurniture;
+import com.eu.habbo.habbohotel.modtool.WordFilter;
 import com.eu.habbo.habbohotel.permissions.Permission;
 import com.eu.habbo.habbohotel.users.Habbo;
 import com.eu.habbo.habbohotel.users.HabboItem;
+import com.eu.habbo.habbohotel.users.UserWordFilter;
 import com.eu.habbo.habbohotel.wired.core.WiredManager;
 import com.eu.habbo.messages.ServerMessage;
+import com.eu.habbo.messages.outgoing.MessageComposer;
 import com.eu.habbo.messages.outgoing.rooms.users.RoomUserNameChangedComposer;
 import com.eu.habbo.messages.outgoing.rooms.users.RoomUserShoutComposer;
 import com.eu.habbo.messages.outgoing.rooms.users.RoomUserTalkComposer;
@@ -29,6 +32,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -167,8 +171,13 @@ public class RoomChatManager {
      * Mutes a Habbo for a specified number of minutes.
      */
     public void muteHabbo(Habbo habbo, int minutes) {
+        // Compute the expiry in long arithmetic and clamp to Integer.MAX_VALUE:
+        // the map stores an int timestamp, so a large `minutes` (e.g. from a
+        // wired mute) would otherwise overflow `minutes * 60` to a negative /
+        // unpredictable value instead of a far-future expiry.
+        long unmuteAt = (long) Emulator.getIntUnixTimestamp() + ((long) Math.max(0, minutes) * 60L);
         synchronized (this.mutedHabbos) {
-            this.mutedHabbos.put(habbo.getHabboInfo().getId(), Emulator.getIntUnixTimestamp() + (minutes * 60));
+            this.mutedHabbos.put(habbo.getHabboInfo().getId(), (int) Math.min(unmuteAt, Integer.MAX_VALUE));
         }
     }
 
@@ -266,6 +275,8 @@ public class RoomChatManager {
             }
         }
         habbo.getHabboStats().lastChat = millis;
+        com.eu.habbo.habbohotel.quests.QuestProgressEvents.progress(
+                habbo, com.eu.habbo.habbohotel.quests.QuestGoalType.TALK_IN_ROOM, 1);
 
         // Handle idle event
         UserIdleEvent event = new UserIdleEvent(habbo, UserIdleEvent.IdleReason.TALKED, false);
@@ -469,11 +480,14 @@ public class RoomChatManager {
 
         for (Habbo h : this.room.getHabbos()) {
             if (h == roomChatMessage.getTargetHabbo() || h == habbo) {
-                if (!h.getHabboStats().userIgnored(habbo.getHabboInfo().getId())) {
+                if (!h.getHabboStats().userIgnored(habbo.getHabboInfo().getId())
+                        && !h.getHabboStats().userBlocked(habbo.getHabboInfo().getId())) {
                     if (prefixMessage != null) {
                         h.getClient().sendResponse(prefixMessage);
                     }
-                    h.getClient().sendResponse(message);
+                    h.getClient()
+                            .sendResponse(
+                                    chatPacketFor(h, habbo, roomChatMessage, message, RoomUserWhisperComposer::new));
 
                     if (clearPrefixMessage != null) {
                         h.getClient().sendResponse(clearPrefixMessage);
@@ -512,11 +526,13 @@ public class RoomChatManager {
                     && (tentRectangle == null
                             || RoomLayout.tileInSquare(
                                     tentRectangle, h.getRoomUnit().getCurrentLocation()))) {
-                if (!h.getHabboStats().userIgnored(habbo.getHabboInfo().getId())) {
+                if (!h.getHabboStats().userIgnored(habbo.getHabboInfo().getId())
+                        && !h.getHabboStats().userBlocked(habbo.getHabboInfo().getId())) {
                     if (prefixMessage != null && !h.getHabboStats().preferOldChat) {
                         h.getClient().sendResponse(prefixMessage);
                     }
-                    h.getClient().sendResponse(message);
+                    h.getClient()
+                            .sendResponse(chatPacketFor(h, habbo, roomChatMessage, message, RoomUserTalkComposer::new));
                     if (clearPrefixMessage != null && !h.getHabboStats().preferOldChat) {
                         h.getClient().sendResponse(clearPrefixMessage);
                     }
@@ -578,13 +594,15 @@ public class RoomChatManager {
 
         for (Habbo h : this.room.getHabbos()) {
             if (!h.getHabboStats().userIgnored(habbo.getHabboInfo().getId())
+                    && !h.getHabboStats().userBlocked(habbo.getHabboInfo().getId())
                     && (tentRectangle == null
                             || RoomLayout.tileInSquare(
                                     tentRectangle, h.getRoomUnit().getCurrentLocation()))) {
                 if (prefixMessage != null && !h.getHabboStats().preferOldChat) {
                     h.getClient().sendResponse(prefixMessage);
                 }
-                h.getClient().sendResponse(message);
+                h.getClient()
+                        .sendResponse(chatPacketFor(h, habbo, roomChatMessage, message, RoomUserShoutComposer::new));
                 if (clearPrefixMessage != null && !h.getHabboStats().preferOldChat) {
                     h.getClient().sendResponse(clearPrefixMessage);
                 }
@@ -630,6 +648,35 @@ public class RoomChatManager {
             // Staff should be able to see the tent chat anyhow
             this.showTentChatMessageOutsideTentIfPermitted(h, roomChatMessage, tentRectangle);
         }
+    }
+
+    /**
+     * The chat packet a recipient receives: the shared one, or a copy in which the words of their
+     * personal word filter are masked. The speaker always sees their own text.
+     */
+    public static ServerMessage chatPacketFor(
+            Habbo recipient,
+            Habbo speaker,
+            RoomChatMessage roomChatMessage,
+            ServerMessage shared,
+            Function<RoomChatMessage, MessageComposer> composer) {
+        if (recipient == speaker || recipient.getHabboStats() == null) {
+            return shared;
+        }
+
+        UserWordFilter filter = recipient.getHabboStats().getCustomWordFilter();
+        if (filter == null || filter.isEmpty()) {
+            return shared;
+        }
+
+        String masked = filter.apply(roomChatMessage.getMessage(), WordFilter.DEFAULT_REPLACEMENT);
+        if (masked.equals(roomChatMessage.getMessage())) {
+            return shared;
+        }
+
+        RoomChatMessage personal = new RoomChatMessage(roomChatMessage);
+        personal.setMessage(masked);
+        return composer.apply(personal).compose();
     }
 
     /**

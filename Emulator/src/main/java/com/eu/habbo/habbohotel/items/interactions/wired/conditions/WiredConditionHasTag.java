@@ -7,11 +7,10 @@ import com.eu.habbo.habbohotel.rooms.Room;
 import com.eu.habbo.habbohotel.rooms.RoomUnit;
 import com.eu.habbo.habbohotel.users.Habbo;
 import com.eu.habbo.habbohotel.wired.WiredConditionType;
-import com.eu.habbo.habbohotel.wired.core.WiredManager;
 import com.eu.habbo.habbohotel.wired.core.WiredContext;
+import com.eu.habbo.habbohotel.wired.core.WiredManager;
 import com.eu.habbo.habbohotel.wired.core.WiredSourceUtil;
 import com.eu.habbo.messages.ServerMessage;
-
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
@@ -26,7 +25,7 @@ public class WiredConditionHasTag extends InteractionWiredCondition {
     protected static final int QUANTIFIER_ANY = 1;
     protected static final int MAX_TAG_LENGTH = 38;
 
-    public static final WiredConditionType type = WiredConditionType.ACTOR_WEARS_BADGE;
+    public static final WiredConditionType type = WiredConditionType.USER_TAG;
 
     protected String tag = "";
     protected int userSource = WiredSourceUtil.SOURCE_TRIGGER;
@@ -98,11 +97,7 @@ public class WiredConditionHasTag extends InteractionWiredCondition {
 
     @Override
     public String getWiredData() {
-        return WiredManager.getGson().toJson(new JsonData(
-                this.tag,
-                this.userSource,
-                this.quantifier
-        ));
+        return WiredManager.getGson().toJson(new JsonData(this.tag, this.userSource, this.quantifier));
     }
 
     @Override

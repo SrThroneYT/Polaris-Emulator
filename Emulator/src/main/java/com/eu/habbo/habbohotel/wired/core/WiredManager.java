@@ -9,6 +9,7 @@ import com.eu.habbo.habbohotel.items.interactions.InteractionWiredExtra;
 import com.eu.habbo.habbohotel.items.interactions.wired.effects.WiredEffectGiveReward;
 import com.eu.habbo.habbohotel.items.interactions.wired.effects.WiredEffectTriggerStacks;
 import com.eu.habbo.habbohotel.items.interactions.wired.extra.WiredExtraExecutionLimit;
+import com.eu.habbo.habbohotel.items.interactions.wired.extra.WiredVariableReferenceSupport;
 import com.eu.habbo.habbohotel.items.interactions.wired.triggers.WiredTriggerHabboClicksUser;
 import com.eu.habbo.habbohotel.rooms.Room;
 import com.eu.habbo.habbohotel.rooms.RoomTile;
@@ -23,6 +24,7 @@ import com.eu.habbo.habbohotel.wired.api.WiredStack;
 import com.eu.habbo.habbohotel.wired.migrate.WiredEvents;
 import com.eu.habbo.habbohotel.wired.tick.WiredTickService;
 import com.eu.habbo.habbohotel.wired.tick.WiredTickable;
+import com.eu.habbo.habbohotel.wired.variablefx.WiredVariableFxSupport;
 import com.eu.habbo.messages.outgoing.catalog.PurchaseOKComposer;
 import com.eu.habbo.messages.outgoing.inventory.AddHabboItemComposer;
 import com.eu.habbo.messages.outgoing.inventory.InventoryRefreshComposer;
@@ -288,6 +290,18 @@ public final class WiredManager {
         return engine.getDiagnosticsSnapshot(roomId);
     }
 
+    /**
+     * Note a furni that nothing in its room can ever feed. Silent when the engine is not up, so a
+     * furni loading before the engine cannot fail on this.
+     */
+    public static void noteUnreachable(int roomId, String reason, String sourceLabel, int sourceId) {
+        if (engine == null) {
+            return;
+        }
+
+        engine.noteUnreachable(roomId, reason, sourceLabel, sourceId);
+    }
+
     public static void clearDiagnosticsLogs(int roomId) {
         if (engine == null) {
             return;
@@ -502,7 +516,10 @@ public final class WiredManager {
         }
 
         WiredEvent event = WiredEvents.userSays(room, user, message, chatType, chatStyle);
-        return handleEvent(event);
+        boolean handled = handleEvent(event);
+        // The say-your-username trigger listens on its own event; both fire from one chat line.
+        boolean handledUsername = handleEvent(WiredEvents.userSaysUsername(room, user, message, chatType, chatStyle));
+        return handled || handledUsername;
     }
 
     public static boolean shouldSuppressUserSaysOutput(Room room, RoomUnit user, String message) {
@@ -520,7 +537,9 @@ public final class WiredManager {
         }
 
         WiredEvent event = WiredEvents.userSays(room, user, message, chatType, chatStyle);
-        return engine.shouldSuppressUserSaysOutput(event);
+        return engine.shouldSuppressUserSaysOutput(event)
+                || engine.shouldSuppressUserSaysOutput(
+                        WiredEvents.userSaysUsername(room, user, message, chatType, chatStyle));
     }
 
     /**
@@ -556,6 +575,19 @@ public final class WiredManager {
         }
 
         WiredEvent event = WiredEvents.furniStateChanged(room, user, item);
+        return handleEvent(event);
+    }
+
+    /**
+     * Trigger when a furni's state was updated by anyone or anything: the user-toggle event above
+     * only answers clicks, this one also answers wired effects and the room itself.
+     */
+    public static boolean triggerFurniStateUpdated(Room room, RoomUnit user, HabboItem item, boolean byEffect) {
+        if (!isEnabled() || room == null || item == null) {
+            return false;
+        }
+
+        WiredEvent event = WiredEvents.furniStateUpdated(room, user, item, byEffect);
         return handleEvent(event);
     }
 
@@ -645,6 +677,18 @@ public final class WiredManager {
         }
 
         WiredEvent event = WiredEvents.timerRepeatLong(room, timerItem);
+        return handleEventForSourceItem(event, timerItem);
+    }
+
+    /**
+     * Trigger the long one-shot timer.
+     */
+    public static boolean triggerTimerTickLong(Room room, HabboItem timerItem) {
+        if (!isEnabled() || room == null || timerItem == null) {
+            return false;
+        }
+
+        WiredEvent event = WiredEvents.timerTickLong(room, timerItem);
         return handleEventForSourceItem(event, timerItem);
     }
 
@@ -879,8 +923,12 @@ public final class WiredManager {
         }
 
         if (engine != null) {
-            engine.clearRoomExecutionCaches(room.getId());
+            engine.clearRoomIndexCaches(room.getId());
         }
+
+        // Evict this room's shared-variable assignment cache (previously a dead
+        // hook, so entries leaked). The cache is also LRU-bounded as a backstop.
+        WiredVariableReferenceSupport.invalidateRoom(room.getId());
 
         if (debugEnabled) {
             LOGGER.info("[Wired] Cache invalidated for room {}", room.getId());
@@ -914,7 +962,7 @@ public final class WiredManager {
         room.advanceWiredCacheGeneration();
 
         if (engine != null) {
-            engine.clearRoomExecutionCaches(room.getId());
+            engine.clearRoomIndexCaches(room.getId());
         }
 
         if (stackIndex != null) {
@@ -1035,6 +1083,7 @@ public final class WiredManager {
      */
     public static void unregisterRoomTickables(Room room) {
         getTickService().unregisterRoom(room);
+        WiredVariableFxSupport.drop(room);
         if (room != null) {
             room.getFurniVariableManager().clearTransientAssignments();
             room.getRoomVariableManager().clearTransientAssignments();

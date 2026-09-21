@@ -115,6 +115,7 @@ public class WiredEffectMatchFurni extends InteractionWiredEffect implements Int
                 item.setExtradata(setting.state);
                 item.needsUpdate(true);
                 room.updateItemState(item);
+                WiredManager.triggerFurniStateUpdated(room, ctx.actor().orElse(null), item, true);
             }
         }
 
@@ -186,9 +187,14 @@ public class WiredEffectMatchFurni extends InteractionWiredEffect implements Int
             this.settings.addAll(data.items);
             this.furniSource = data.furniSource;
         } else {
-            String[] data = set.getString("wired_data").split(":");
+            String[] data = wiredData.split(":");
 
-            Integer.parseInt(data[0]); // itemCount - consumed but unused, data[1] contains actual items
+            // A legacy row has six colon-separated fields; anything shorter keeps the defaults
+            // rather than failing the whole furni load on a missing index.
+            if (data.length < 6) {
+                this.needsUpdate(true);
+                return;
+            }
 
             String[] items = data[1].split(Pattern.quote(";"));
 
@@ -312,6 +318,12 @@ public class WiredEffectMatchFurni extends InteractionWiredEffect implements Int
 
         if (delay > Emulator.getConfig().getInt("hotel.wired.max_delay", 20))
             throw new WiredSaveException("Delay too long");
+
+        // A snapshot exists only for picked furni; with the dropdown left on "triggering furni" it
+        // was applied to the trigger item instead of the furni it was taken from.
+        if (!newSettings.isEmpty() && this.furniSource == WiredSourceUtil.SOURCE_TRIGGER) {
+            this.furniSource = WiredSourceUtil.SOURCE_SELECTED;
+        }
 
         this.state = setState;
         this.direction = setDirection;

@@ -14,7 +14,6 @@ import com.eu.habbo.habbohotel.wired.WiredEffectType;
 import com.eu.habbo.habbohotel.wired.core.WiredContext;
 import com.eu.habbo.habbohotel.wired.core.WiredManager;
 import com.eu.habbo.messages.ServerMessage;
-
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -42,7 +41,8 @@ public class WiredEffectScanChestFurniByType extends InteractionWiredEffect {
         super(set, baseItem);
     }
 
-    public WiredEffectScanChestFurniByType(int id, int userId, Item item, String extradata, int limitedStack, int limitedSells) {
+    public WiredEffectScanChestFurniByType(
+            int id, int userId, Item item, String extradata, int limitedStack, int limitedSells) {
         super(id, userId, item, extradata, limitedStack, limitedSells);
     }
 
@@ -57,7 +57,9 @@ public class WiredEffectScanChestFurniByType extends InteractionWiredEffect {
         Set<Integer> chestTypes = new HashSet<>();
         for (Integer id : this.chestIds) {
             HabboItem item = room.getHabboItem(id);
-            if (item instanceof InteractionWiredChest chest) {
+            // A chest that does not answer wired keeps its contents to itself, as it does for the
+            // chest effects and Init Transaction; a read-only scan still discloses what is inside.
+            if (item instanceof InteractionWiredChest chest && chest.answersWired()) {
                 chestTypes.addAll(chest.getContents().distinctTypes(ChestStorage.KIND_FURNI));
             }
         }
@@ -73,7 +75,12 @@ public class WiredEffectScanChestFurniByType extends InteractionWiredEffect {
             });
         }
 
-        Set<HabboItem> result = this.applySelectorModifiers(matched, this.getSelectableFloorItems(room, ctx), ctx.targets().items(), this.filterExisting, this.invert);
+        Set<HabboItem> result = this.applySelectorModifiers(
+                matched,
+                this.getSelectableFloorItems(room, ctx),
+                ctx.targets().items(),
+                this.filterExisting,
+                this.invert);
         ctx.targets().setItems(result);
     }
 
@@ -112,7 +119,8 @@ public class WiredEffectScanChestFurniByType extends InteractionWiredEffect {
 
     @Override
     public String getWiredData() {
-        return WiredManager.getGson().toJson(new JsonData(this.filterExisting, this.invert, this.chestIds, this.getDelay()));
+        return WiredManager.getGson()
+                .toJson(new JsonData(this.filterExisting, this.invert, this.chestIds, this.getDelay()));
     }
 
     @Override

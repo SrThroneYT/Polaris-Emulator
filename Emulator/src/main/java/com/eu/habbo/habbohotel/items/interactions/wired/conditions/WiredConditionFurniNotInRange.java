@@ -1,7 +1,6 @@
 package com.eu.habbo.habbohotel.items.interactions.wired.conditions;
 
 import com.eu.habbo.Emulator;
-import java.util.HashSet;
 import com.eu.habbo.habbohotel.items.Item;
 import com.eu.habbo.habbohotel.items.interactions.InteractionWiredCondition;
 import com.eu.habbo.habbohotel.items.interactions.wired.WiredSettings;
@@ -15,11 +14,11 @@ import com.eu.habbo.habbohotel.wired.core.WiredContext;
 import com.eu.habbo.habbohotel.wired.core.WiredManager;
 import com.eu.habbo.habbohotel.wired.core.WiredSourceUtil;
 import com.eu.habbo.messages.ServerMessage;
-
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.HashSet;
 import java.util.List;
 
 public class WiredConditionFurniNotInRange extends InteractionWiredCondition {
@@ -29,7 +28,7 @@ public class WiredConditionFurniNotInRange extends InteractionWiredCondition {
     private static final int QUANTIFIER_ALL = 0;
     private static final int QUANTIFIER_ANY = 1;
 
-    public static final WiredConditionType type = WiredConditionType.HAS_ALTITUDE;
+    public static final WiredConditionType type = WiredConditionType.FURNI_RANGE;
 
     private final HashSet<HabboItem> items;
     private int comparison = COMPARISON_EQUAL;
@@ -42,7 +41,8 @@ public class WiredConditionFurniNotInRange extends InteractionWiredCondition {
         this.items = new HashSet<>();
     }
 
-    public WiredConditionFurniNotInRange(int id, int userId, Item item, String extradata, int limitedStack, int limitedSells) {
+    public WiredConditionFurniNotInRange(
+            int id, int userId, Item item, String extradata, int limitedStack, int limitedSells) {
         super(id, userId, item, extradata, limitedStack, limitedSells);
         this.items = new HashSet<>();
     }
@@ -91,13 +91,13 @@ public class WiredConditionFurniNotInRange extends InteractionWiredCondition {
 
     @Override
     public String getWiredData() {
-        return WiredManager.getGson().toJson(new JsonData(
-                this.comparison,
-                this.formatRadius(this.radius),
-                this.furniSource,
-                this.quantifier,
-                this.items.stream().map(HabboItem::getId).toList()
-        ));
+        return WiredManager.getGson()
+                .toJson(new JsonData(
+                        this.comparison,
+                        this.formatRadius(this.radius),
+                        this.furniSource,
+                        this.quantifier,
+                        this.items.stream().map(HabboItem::getId).toList()));
     }
 
     @Override
@@ -221,6 +221,19 @@ public class WiredConditionFurniNotInRange extends InteractionWiredCondition {
         return true;
     }
 
+    /**
+     * The dialog offers three operators against the radius, and until now every one of them behaved
+     * as "within". They now mean what they say, with {@code equals} keeping the historical inclusive
+     * reading so a box saved before this change evaluates exactly as it did.
+     */
+    private boolean matchesRadius(double distance) {
+        return switch (this.comparison) {
+            case COMPARISON_LESS -> distance < this.radius;
+            case COMPARISON_GREATER -> distance > this.radius;
+            default -> distance <= this.radius;
+        };
+    }
+
     private boolean isOutsideRange(RoomTile origin, RoomLayout layout, HabboItem item) {
         if (item == null) {
             return true;
@@ -231,7 +244,7 @@ public class WiredConditionFurniNotInRange extends InteractionWiredCondition {
             return true;
         }
 
-        return origin.distance(tile) > this.radius;
+        return !this.matchesRadius(origin.distance(tile));
     }
 
     private void refresh(Room room) {
@@ -263,16 +276,18 @@ public class WiredConditionFurniNotInRange extends InteractionWiredCondition {
     int normalizeFurniSource(int value) {
         return switch (value) {
             case WiredSourceUtil.SOURCE_SELECTED,
-                 WiredSourceUtil.SOURCE_SELECTOR,
-                 WiredSourceUtil.SOURCE_SIGNAL,
-                 WiredSourceUtil.SOURCE_TRIGGER -> value;
+                    WiredSourceUtil.SOURCE_SELECTOR,
+                    WiredSourceUtil.SOURCE_SIGNAL,
+                    WiredSourceUtil.SOURCE_TRIGGER -> value;
             default -> WiredSourceUtil.SOURCE_TRIGGER;
         };
     }
 
     double normalizeRadius(double value) {
         double clampedValue = Math.max(0.0D, value);
-        return BigDecimal.valueOf(clampedValue).setScale(2, RoundingMode.HALF_UP).doubleValue();
+        return BigDecimal.valueOf(clampedValue)
+                .setScale(2, RoundingMode.HALF_UP)
+                .doubleValue();
     }
 
     double parseRadiusOrDefault(String value) {

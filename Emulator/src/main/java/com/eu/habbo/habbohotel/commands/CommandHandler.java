@@ -228,6 +228,7 @@ public class CommandHandler {
 
     public void reloadCommands() {
         addCommand(new AboutCommand());
+        addCommand(new AfkCommand());
         addCommand(new AlertCommand());
         addCommand(new AllowTradingCommand());
         addCommand(new ArcturusCommand());
@@ -271,6 +272,7 @@ public class CommandHandler {
         addCommand(new IPBanCommand());
         addCommand(new LayCommand());
         addCommand(new MachineBanCommand());
+        addCommand(new MaintenanceCommand());
         addCommand(new MassBadgeCommand());
         addCommand(new RoomBadgeCommand());
         addCommand(new MassCreditsCommand());
@@ -299,6 +301,7 @@ public class CommandHandler {
         addCommand(new RoomCreditsCommand());
         addCommand(new RoomDanceCommand());
         addCommand(new RoomEffectCommand());
+        addCommand(new RoomSpecialEffectCommand());
         addCommand(new RoomItemCommand());
         addCommand(new RoomKickCommand());
         addCommand(new RoomMuteCommand());
@@ -345,6 +348,8 @@ public class CommandHandler {
         addCommand(new UpdatePetDataCommand());
         addCommand(new UpdatePluginsCommand());
         addCommand(new UpdatePollsCommand());
+        addCommand(new UpdateRewardTracksCommand());
+        addCommand(new RewardTrackPointsCommand());
         addCommand(new UpdateTextsCommand());
         addCommand(new UpdateWordFilterCommand());
         addCommand(new UserInfoCommand());

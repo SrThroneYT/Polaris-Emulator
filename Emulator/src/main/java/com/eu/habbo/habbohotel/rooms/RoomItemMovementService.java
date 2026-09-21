@@ -161,6 +161,8 @@ final class RoomItemMovementService {
             return FurnitureMovementError.CANT_STACK;
         }
 
+        z = RoomBuildHeight.apply(actor, layout, tile, z);
+
         // Plugin height override (match your NEW behavior: base + updatedHeight)
         if (Emulator.getPluginManager().isRegistered(FurnitureBuildheightEvent.class, true)) {
             FurnitureBuildheightEvent event =
@@ -171,6 +173,7 @@ final class RoomItemMovementService {
             }
         }
 
+        this.applyBuildUnderpass(item, actor);
         item.setX(tile.x);
         item.setY(tile.y);
         item.setZ(z);
@@ -337,6 +340,7 @@ final class RoomItemMovementService {
             }
         }
 
+        this.applyBuildUnderpass(item, actor);
         item.setX(tile.x);
         item.setY(tile.y);
         item.setZ(z);
@@ -575,6 +579,7 @@ final class RoomItemMovementService {
             return FurnitureMovementError.CANT_STACK;
         }
 
+        this.applyBuildUnderpass(item, actor);
         item.setX(tile.x);
         item.setY(tile.y);
         item.setZ(height);
@@ -799,6 +804,7 @@ final class RoomItemMovementService {
             return FurnitureMovementError.CANT_STACK;
         }
 
+        this.applyBuildUnderpass(item, actor);
         item.setX(tile.x);
         item.setY(tile.y);
         item.setZ(height);
@@ -902,6 +908,22 @@ final class RoomItemMovementService {
         }
         this.room.onFurnitureTopologyChanged();
         return FurnitureMovementError.NONE;
+    }
+
+    /**
+     * Moving an item while the actor's build-underpass mode is on marks it as
+     * walk-underneath. Moves without the mode leave an existing flag untouched,
+     * so adjusting the height of flagged furniture never silently clears it;
+     * re-placing from the inventory is what resets the flag.
+     */
+    private void applyBuildUnderpass(HabboItem item, Habbo actor) {
+        if (actor == null || actor.getRoomUnit() == null) {
+            return;
+        }
+
+        if (actor.getRoomUnit().isBuildUnderpass()) {
+            item.setAllowUnderpass(true);
+        }
     }
 
     private boolean shouldCheckUnits(HabboItem item, boolean checkForUnits) {

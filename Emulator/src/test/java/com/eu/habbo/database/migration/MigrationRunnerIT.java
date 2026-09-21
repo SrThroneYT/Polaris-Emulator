@@ -626,6 +626,110 @@ class MigrationRunnerIT {
         }
     }
 
+    @Test
+    void hotelWhoseSchemaIsAheadOfItsHistoryIsAdoptedAtTheMigrationsItAlreadyCarries() throws Exception {
+        requireDocker();
+
+        try (HikariDataSource ds = TestDatabase.freshDatabase("mig_schema_ahead")) {
+            // A hotel migrated by an earlier build, restored from a dump taken without the
+            // Flyway history: every object up to the habbicon catalog exists, nothing records it.
+            Flyway.configure()
+                    .dataSource(ds)
+                    .locations(MigrationRunner.MIGRATION_LOCATION)
+                    .target("20260916180000")
+                    .placeholderReplacement(false)
+                    .load()
+                    .migrate();
+            try (Connection c = ds.getConnection();
+                    Statement s = c.createStatement()) {
+                s.execute("DROP TABLE flyway_schema_history");
+            }
+
+            assertEquals(SchemaPreflight.State.RECOGNISED_EXISTING, SchemaPreflight.detect(ds));
+            String status = MigrationRunner.status(ds);
+            // The last migration up to the target that leaves tables or columns behind is the
+            // talent reward column; the habbicon catalog migration after it only writes rows, so
+            // it cannot be proven applied and runs again (it is written to be re-runnable), as
+            // does everything packaged after it.
+            List<String> pending = packagedVersionsAbove(ds, "20260911160100");
+            assertTrue(status.contains("Adoption: record baseline V20260911160100"), status);
+            assertTrue(status.contains("recorded as applied without running"), status);
+            assertTrue(status.contains("  = V20260802090000"), status);
+            assertTrue(status.contains("Pending migrations: " + pending.size() + "\n"), status);
+            assertTrue(status.contains("  - V20260916180000"), status);
+            for (String version : pending) {
+                assertTrue(status.contains("  - V" + version), status);
+            }
+
+            // Re-creating catalog_id_sequences and friends would fail; adoption must skip them.
+            MigrationRunner.migrate(ds);
+
+            assertEquals(SchemaPreflight.State.MANAGED, SchemaPreflight.detect(ds));
+            assertEquals(1, intValue(ds, """
+                    SELECT COUNT(*) FROM flyway_schema_history
+                    WHERE version = '20260911160100' AND type = 'BASELINE'
+                    """));
+            assertEquals(0, intValue(ds, """
+                    SELECT COUNT(*) FROM flyway_schema_history
+                    WHERE version = '20260802090000'
+                    """));
+            assertEquals(1, intValue(ds, """
+                    SELECT COUNT(*) FROM flyway_schema_history
+                    WHERE version = '20260916180000' AND success = 1
+                    """));
+            assertTrue(MigrationRunner.status(ds).contains("Pending migrations: 0"));
+            // The re-run habbicon catalog migration must not have doubled its page or offers.
+            assertEquals(1, intValue(ds, "SELECT COUNT(*) FROM catalog_pages WHERE caption_save = 'habbicons'"));
+            assertEquals(
+                    intValue(ds, "SELECT COUNT(*) FROM habbicons WHERE cost_credits > 0 OR cost_points > 0"),
+                    intValue(ds, "SELECT COUNT(*) FROM catalog_items WHERE habbicon_id > 0"));
+        }
+    }
+
+    @Test
+    void managedHistoryBehindTheSchemaIsReconciledInsteadOfReplayed() throws Exception {
+        requireDocker();
+
+        try (HikariDataSource ds = TestDatabase.freshDatabase("mig_reconcile")) {
+            MigrationRunner.migrate(ds);
+            // Lose the history rows for everything after the catalog drafts, as a partial
+            // restore or a hand-edited history would.
+            try (Connection c = ds.getConnection();
+                    Statement s = c.createStatement()) {
+                s.execute("DELETE FROM flyway_schema_history WHERE version > '20260802090000'");
+            }
+            assertEquals(SchemaPreflight.State.MANAGED, SchemaPreflight.detect(ds));
+            assertTrue(intValue(ds, "SELECT COUNT(*) FROM flyway_schema_history") > 1);
+
+            // Pending migrations are a report, not a validation failure.
+            String status = MigrationRunner.status(ds);
+            assertTrue(status.contains("--migrations=reconcile"), status);
+            assertTrue(status.contains("  = V20260911160100"), status);
+
+            String report = MigrationRunner.reconcile(ds);
+            assertTrue(report.contains("Recorded as applied without running: V20260911150000"), report);
+            assertTrue(report.contains("Recorded as applied without running: V20260911160100"), report);
+
+            // Every reconciled row carries the packaged checksum, so validation passes. Only
+            // the data-only migrations after the last one that leaves objects behind stay
+            // pending and are replayed by a normal start.
+            List<String> trailing = packagedVersionsAbove(ds, lastEvidenceBearingVersion(ds));
+            status = MigrationRunner.status(ds);
+            assertTrue(status.contains("Pending migrations: " + trailing.size() + "\n"), status);
+            for (String version : trailing) {
+                assertTrue(status.contains("  - V" + version), status);
+            }
+            assertTrue(!status.contains("  - V20260916180000"), status);
+            assertEquals(0, intValue(ds, "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 0"));
+            MigrationRunner.migrate(ds);
+            assertEquals(1, intValue(ds, """
+                    SELECT COUNT(*) FROM flyway_schema_history WHERE version = '20260916180000'
+                    """));
+            assertTrue(MigrationRunner.status(ds).contains("Pending migrations: 0"));
+            assertEquals(1, intValue(ds, "SELECT COUNT(*) FROM catalog_pages WHERE caption_save = 'habbicons'"));
+        }
+    }
+
     private static boolean tableExists(HikariDataSource ds, String table) throws Exception {
         try (Connection c = ds.getConnection();
                 var st = c.prepareStatement(
@@ -694,6 +798,24 @@ class MigrationRunnerIT {
             }
         }
         return count;
+    }
+
+    /** The packaged migration versions above {@code version}, in order; what stays pending past it. */
+    private static List<String> packagedVersionsAbove(HikariDataSource ds, String version) {
+        List<String> above = new ArrayList<>();
+        for (SchemaEvidence.Migration migration : SchemaEvidence.packaged(MigrationRunner.flyway(ds))) {
+            if (migration.version().compareTo(version) > 0) above.add(migration.version());
+        }
+        return above;
+    }
+
+    /** The last packaged migration that creates a table or column the schema can be checked for. */
+    private static String lastEvidenceBearingVersion(HikariDataSource ds) {
+        String last = MigrationRunner.BASELINE_VERSION;
+        for (SchemaEvidence.Migration migration : SchemaEvidence.packaged(MigrationRunner.flyway(ds))) {
+            if (migration.hasEvidence()) last = migration.version();
+        }
+        return last;
     }
 
     private static void installArcturusFixture(HikariDataSource ds) throws Exception {

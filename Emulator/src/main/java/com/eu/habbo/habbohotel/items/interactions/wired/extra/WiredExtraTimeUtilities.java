@@ -8,7 +8,6 @@ import com.eu.habbo.habbohotel.rooms.Room;
 import com.eu.habbo.habbohotel.rooms.RoomUnit;
 import com.eu.habbo.habbohotel.wired.core.WiredManager;
 import com.eu.habbo.messages.ServerMessage;
-
 import java.sql.ResultSet;
 import java.sql.SQLException;
 
@@ -35,7 +34,8 @@ public class WiredExtraTimeUtilities extends InteractionWiredExtra {
         super(set, baseItem);
     }
 
-    public WiredExtraTimeUtilities(int id, int userId, Item item, String extradata, int limitedStack, int limitedSells) {
+    public WiredExtraTimeUtilities(
+            int id, int userId, Item item, String extradata, int limitedStack, int limitedSells) {
         super(id, userId, item, extradata, limitedStack, limitedSells);
     }
 
@@ -48,7 +48,11 @@ public class WiredExtraTimeUtilities extends InteractionWiredExtra {
     public boolean saveData(WiredSettings settings, GameClient gameClient) {
         int value = (settings.getIntParams().length > 0) ? settings.getIntParams()[0] : this.timeUnit;
 
-        if (value == this.timeUnit && settings.getStringParam() != null && !settings.getStringParam().isEmpty()) {
+        // The string is the fallback for a dialog that only has a text field: it is read when no
+        // int was sent at all, never over an int that merely equals the current value.
+        if (settings.getIntParams().length == 0
+                && settings.getStringParam() != null
+                && !settings.getStringParam().isEmpty()) {
             try {
                 value = Integer.parseInt(settings.getStringParam());
             } catch (NumberFormatException ignored) {
@@ -109,9 +113,7 @@ public class WiredExtraTimeUtilities extends InteractionWiredExtra {
     }
 
     @Override
-    public void onWalk(RoomUnit roomUnit, Room room, Object[] objects) throws Exception {
-
-    }
+    public void onWalk(RoomUnit roomUnit, Room room, Object[] objects) throws Exception {}
 
     @Override
     public boolean hasConfiguration() {

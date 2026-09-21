@@ -7,17 +7,19 @@ import com.eu.habbo.habbohotel.items.interactions.InteractionWiredEffect;
 import com.eu.habbo.habbohotel.items.interactions.InteractionWiredTrigger;
 import com.eu.habbo.habbohotel.items.interactions.wired.WiredSettings;
 import com.eu.habbo.habbohotel.permissions.Permission;
-import com.eu.habbo.habbohotel.rooms.*;
+import com.eu.habbo.habbohotel.rooms.Room;
+import com.eu.habbo.habbohotel.rooms.RoomChatMessage;
+import com.eu.habbo.habbohotel.rooms.RoomChatMessageBubbles;
+import com.eu.habbo.habbohotel.rooms.RoomUnit;
 import com.eu.habbo.habbohotel.users.Habbo;
 import com.eu.habbo.habbohotel.wired.WiredEffectType;
-import com.eu.habbo.habbohotel.wired.core.WiredManager;
 import com.eu.habbo.habbohotel.wired.core.WiredContext;
+import com.eu.habbo.habbohotel.wired.core.WiredManager;
 import com.eu.habbo.habbohotel.wired.core.WiredSourceUtil;
 import com.eu.habbo.habbohotel.wired.core.WiredTextPlaceholderUtil;
 import com.eu.habbo.messages.ServerMessage;
 import com.eu.habbo.messages.incoming.wired.WiredSaveException;
 import com.eu.habbo.messages.outgoing.rooms.users.RoomUserWhisperComposer;
-
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -40,6 +42,7 @@ public class WiredEffectWhisper extends InteractionWiredEffect {
     protected int userSource = WiredSourceUtil.SOURCE_TRIGGER;
     protected int visibilitySelection = VISIBILITY_SOURCE_USERS;
     protected int bubbleStyle = RoomChatMessageBubbles.WIRED.getType();
+    protected int bubbleWidthOverride = RoomChatMessage.NO_BUBBLE_WIDTH_OVERRIDE;
 
     public WiredEffectWhisper(ResultSet set, Item baseItem) throws SQLException {
         super(set, baseItem);
@@ -57,12 +60,15 @@ public class WiredEffectWhisper extends InteractionWiredEffect {
         message.appendInt(this.getBaseItem().getSpriteId());
         message.appendInt(this.getId());
         message.appendString(this.message);
-        message.appendInt(3);
+        message.appendInt(4);
         message.appendInt(this.userSource);
         message.appendInt(this.visibilitySelection);
         message.appendInt(this.bubbleStyle);
+        message.appendInt(this.bubbleWidthOverride);
         message.appendInt(0);
-        message.appendInt(type.code);
+        // Subclasses that answer a different type (give effect, give hand item, alert) advertise
+        // their own dialog; the static field is always the show-message one.
+        message.appendInt(this.getType().code);
         message.appendInt(this.getDelay());
 
         if (this.requiresTriggeringUser()) {
@@ -90,18 +96,22 @@ public class WiredEffectWhisper extends InteractionWiredEffect {
                 ? VISIBILITY_ALL_ROOM_USERS
                 : VISIBILITY_SOURCE_USERS;
         this.bubbleStyle = (params.length > 2) ? params[2] : RoomChatMessageBubbles.WIRED.getType();
+        this.bubbleWidthOverride = RoomChatMessage.normalizeBubbleWidthOverride(
+                (params.length > 3) ? params[3] : RoomChatMessage.NO_BUBBLE_WIDTH_OVERRIDE);
 
-        if(gameClient.getHabbo() == null || !gameClient.getHabbo().hasPermission(Permission.ACC_SUPERWIRED)) {
+        if (gameClient.getHabbo() == null || !gameClient.getHabbo().hasPermission(Permission.ACC_SUPERWIRED)) {
             message = Emulator.getGameEnvironment().getWordFilter().filter(message, null);
         }
 
-        int maxLength = Emulator.getConfig().getInt("hotel.wired.show_message.max_length", DEFAULT_SHOW_MESSAGE_MAX_LENGTH);
-        int maxLines = Emulator.getConfig().getInt("hotel.wired.show_message.max_lines", DEFAULT_SHOW_MESSAGE_MAX_LINES);
+        int maxLength =
+                Emulator.getConfig().getInt("hotel.wired.show_message.max_length", DEFAULT_SHOW_MESSAGE_MAX_LENGTH);
+        int maxLines =
+                Emulator.getConfig().getInt("hotel.wired.show_message.max_lines", DEFAULT_SHOW_MESSAGE_MAX_LINES);
         message = clampMessage(message, maxLength, maxLines);
 
         int delay = settings.getDelay();
 
-        if(delay > Emulator.getConfig().getInt("hotel.wired.max_delay", 20))
+        if (delay > Emulator.getConfig().getInt("hotel.wired.max_delay", 20))
             throw new WiredSaveException("Delay too long");
 
         this.message = message;
@@ -175,7 +185,9 @@ public class WiredEffectWhisper extends InteractionWiredEffect {
             }
         }
 
-        return (room == null) ? null : ctx.actor().map(roomUnit -> room.getHabbo(roomUnit)).orElse(null);
+        return (room == null)
+                ? null
+                : ctx.actor().map(roomUnit -> room.getHabbo(roomUnit)).orElse(null);
     }
 
     protected String buildMessage(WiredContext ctx, Habbo referenceHabbo) {
@@ -187,8 +199,15 @@ public class WiredEffectWhisper extends InteractionWiredEffect {
 
         String msg = this.message
                 .replace("%user%", username)
-                .replace("%online_count%", Emulator.getGameEnvironment().getHabboManager().getOnlineCount() + "")
-                .replace("%room_count%", Emulator.getGameEnvironment().getRoomManager().getActiveRooms().size() + "");
+                .replace(
+                        "%online_count%",
+                        Emulator.getGameEnvironment().getHabboManager().getOnlineCount() + "")
+                .replace(
+                        "%room_count%",
+                        Emulator.getGameEnvironment()
+                                        .getRoomManager()
+                                        .getActiveRooms()
+                                        .size() + "");
 
         return WiredTextPlaceholderUtil.applyUsernamePlaceholders(ctx, msg);
     }
@@ -215,7 +234,8 @@ public class WiredEffectWhisper extends InteractionWiredEffect {
     }
 
     private String buildDeliveryKey(WiredContext ctx, Habbo habbo) {
-        return ctx.room().getId() + ":" + this.getId() + ":" + habbo.getHabboInfo().getId() + ":" + ctx.event().getCreatedAtMs();
+        return ctx.room().getId() + ":" + this.getId() + ":"
+                + habbo.getHabboInfo().getId() + ":" + ctx.event().getCreatedAtMs();
     }
 
     private static void cleanupDeliveryDedup(long now) {
@@ -241,9 +261,7 @@ public class WiredEffectWhisper extends InteractionWiredEffect {
                 }
 
                 String msg = buildMessage(ctx, (sharedSourceHabbo != null) ? sharedSourceHabbo : habbo);
-                habbo.getClient().sendResponse(new RoomUserWhisperComposer(
-                        new RoomChatMessage(msg, habbo.getRoomUnit(), RoomChatMessageBubbles.getBubble(this.bubbleStyle))
-                ));
+                habbo.getClient().sendResponse(new RoomUserWhisperComposer(this.chatMessage(msg, habbo.getRoomUnit())));
 
                 if (habbo.getRoomUnit().isIdle()) {
                     habbo.getRoomUnit().getRoom().unIdle(habbo);
@@ -258,9 +276,27 @@ public class WiredEffectWhisper extends InteractionWiredEffect {
         return false;
     }
 
+    public int getBubbleWidthOverride() {
+        return this.bubbleWidthOverride;
+    }
+
+    private RoomChatMessage chatMessage(String text, RoomUnit unit) {
+        RoomChatMessage chatMessage =
+                new RoomChatMessage(text, unit, RoomChatMessageBubbles.getBubble(this.bubbleStyle));
+        chatMessage.setBubbleWidthOverride(this.bubbleWidthOverride);
+        return chatMessage;
+    }
+
     @Override
     public String getWiredData() {
-        return WiredManager.getGson().toJson(new JsonData(this.message, this.getDelay(), this.userSource, this.visibilitySelection, this.bubbleStyle));
+        return WiredManager.getGson()
+                .toJson(new JsonData(
+                        this.message,
+                        this.getDelay(),
+                        this.userSource,
+                        this.visibilitySelection,
+                        this.bubbleStyle,
+                        this.bubbleWidthOverride));
     }
 
     @Override
@@ -268,16 +304,23 @@ public class WiredEffectWhisper extends InteractionWiredEffect {
         String wiredData = set.getString("wired_data");
 
         JsonData jsonData = WiredUtilityPayloadGuard.fromJson(wiredData, JsonData.class);
-        if(jsonData != null) {
+        if (jsonData != null) {
             this.setDelay(WiredUtilityPayloadGuard.delay(jsonData.delay));
             this.message = WiredUtilityPayloadGuard.text(jsonData.message);
-            this.userSource = (jsonData.userSource != null) ? WiredUtilityPayloadGuard.userSource(jsonData.userSource) : WiredSourceUtil.SOURCE_TRIGGER;
-            this.visibilitySelection = (jsonData.visibilitySelection != null && jsonData.visibilitySelection == VISIBILITY_ALL_ROOM_USERS)
-                    ? VISIBILITY_ALL_ROOM_USERS
-                    : VISIBILITY_SOURCE_USERS;
-            this.bubbleStyle = (jsonData.bubbleStyle != null) ? jsonData.bubbleStyle : RoomChatMessageBubbles.WIRED.getType();
-        }
-        else {
+            this.userSource = (jsonData.userSource != null)
+                    ? WiredUtilityPayloadGuard.userSource(jsonData.userSource)
+                    : WiredSourceUtil.SOURCE_TRIGGER;
+            this.visibilitySelection =
+                    (jsonData.visibilitySelection != null && jsonData.visibilitySelection == VISIBILITY_ALL_ROOM_USERS)
+                            ? VISIBILITY_ALL_ROOM_USERS
+                            : VISIBILITY_SOURCE_USERS;
+            this.bubbleStyle =
+                    (jsonData.bubbleStyle != null) ? jsonData.bubbleStyle : RoomChatMessageBubbles.WIRED.getType();
+            this.bubbleWidthOverride = RoomChatMessage.normalizeBubbleWidthOverride(
+                    (jsonData.bubbleWidthOverride != null)
+                            ? jsonData.bubbleWidthOverride
+                            : RoomChatMessage.NO_BUBBLE_WIDTH_OVERRIDE);
+        } else {
             this.message = "";
 
             String[] wiredDataSplit = wiredData != null ? wiredData.split("\t") : new String[0];
@@ -289,6 +332,7 @@ public class WiredEffectWhisper extends InteractionWiredEffect {
             this.userSource = WiredSourceUtil.SOURCE_TRIGGER;
             this.visibilitySelection = VISIBILITY_SOURCE_USERS;
             this.bubbleStyle = RoomChatMessageBubbles.WIRED.getType();
+            this.bubbleWidthOverride = RoomChatMessage.NO_BUBBLE_WIDTH_OVERRIDE;
             this.needsUpdate(true);
         }
     }
@@ -299,6 +343,7 @@ public class WiredEffectWhisper extends InteractionWiredEffect {
         this.userSource = WiredSourceUtil.SOURCE_TRIGGER;
         this.visibilitySelection = VISIBILITY_SOURCE_USERS;
         this.bubbleStyle = RoomChatMessageBubbles.WIRED.getType();
+        this.bubbleWidthOverride = RoomChatMessage.NO_BUBBLE_WIDTH_OVERRIDE;
         this.setDelay(0);
     }
 
@@ -309,7 +354,8 @@ public class WiredEffectWhisper extends InteractionWiredEffect {
 
     @Override
     public boolean requiresTriggeringUser() {
-        return (this.userSource == WiredSourceUtil.SOURCE_TRIGGER) || WiredTextPlaceholderUtil.requiresActor(this.getRoom(), this);
+        return (this.userSource == WiredSourceUtil.SOURCE_TRIGGER)
+                || WiredTextPlaceholderUtil.requiresActor(this.getRoom(), this);
     }
 
     static class JsonData {
@@ -318,13 +364,21 @@ public class WiredEffectWhisper extends InteractionWiredEffect {
         Integer userSource;
         Integer visibilitySelection;
         Integer bubbleStyle;
+        Integer bubbleWidthOverride;
 
-        public JsonData(String message, int delay, int userSource, int visibilitySelection, int bubbleStyle) {
+        public JsonData(
+                String message,
+                int delay,
+                int userSource,
+                int visibilitySelection,
+                int bubbleStyle,
+                int bubbleWidthOverride) {
             this.message = message;
             this.delay = delay;
             this.userSource = userSource;
             this.visibilitySelection = visibilitySelection;
             this.bubbleStyle = bubbleStyle;
+            this.bubbleWidthOverride = bubbleWidthOverride;
         }
     }
 }

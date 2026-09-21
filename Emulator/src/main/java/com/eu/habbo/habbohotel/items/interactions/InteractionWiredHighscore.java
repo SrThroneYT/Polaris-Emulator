@@ -3,6 +3,8 @@ package com.eu.habbo.habbohotel.items.interactions;
 import com.eu.habbo.Emulator;
 import com.eu.habbo.habbohotel.gameclients.GameClient;
 import com.eu.habbo.habbohotel.items.Item;
+import com.eu.habbo.habbohotel.items.interactions.games.InteractionGameTimer;
+import com.eu.habbo.habbohotel.items.interactions.games.InteractionGameUpCounter;
 import com.eu.habbo.habbohotel.rooms.Room;
 import com.eu.habbo.habbohotel.rooms.RoomUnit;
 import com.eu.habbo.habbohotel.users.HabboItem;
@@ -12,12 +14,11 @@ import com.eu.habbo.habbohotel.wired.highscores.WiredHighscoreClearType;
 import com.eu.habbo.habbohotel.wired.highscores.WiredHighscoreRow;
 import com.eu.habbo.habbohotel.wired.highscores.WiredHighscoreScoreType;
 import com.eu.habbo.messages.ServerMessage;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class InteractionWiredHighscore extends HabboItem {
     private static final Logger LOGGER = LoggerFactory.getLogger(InteractionWiredHighscore.class);
@@ -34,7 +35,8 @@ public class InteractionWiredHighscore extends HabboItem {
         this.clearType = WiredHighscoreClearType.ALLTIME;
 
         try {
-            String name = this.getBaseItem().getName().split("_")[1].toUpperCase().split("\\*")[0];
+            String name =
+                    this.getBaseItem().getName().split("_")[1].toUpperCase().split("\\*")[0];
             int ctype = Integer.parseInt(this.getBaseItem().getName().split("\\*")[1]) - 1;
             this.scoreType = WiredHighscoreScoreType.valueOf(name);
             this.clearType = WiredHighscoreClearType.values()[ctype];
@@ -45,14 +47,16 @@ public class InteractionWiredHighscore extends HabboItem {
         this.reloadData();
     }
 
-    public InteractionWiredHighscore(int id, int userId, Item item, String extradata, int limitedStack, int limitedSells) {
+    public InteractionWiredHighscore(
+            int id, int userId, Item item, String extradata, int limitedStack, int limitedSells) {
         super(id, userId, item, extradata, limitedStack, limitedSells);
 
         this.scoreType = WiredHighscoreScoreType.CLASSIC;
         this.clearType = WiredHighscoreClearType.ALLTIME;
 
         try {
-            String name = this.getBaseItem().getName().split("_")[1].toUpperCase().split("\\*")[0];
+            String name =
+                    this.getBaseItem().getName().split("_")[1].toUpperCase().split("\\*")[0];
             int ctype = Integer.parseInt(this.getBaseItem().getName().split("\\*")[1]) - 1;
             this.scoreType = WiredHighscoreScoreType.valueOf(name);
             this.clearType = WiredHighscoreClearType.values()[ctype];
@@ -74,16 +78,17 @@ public class InteractionWiredHighscore extends HabboItem {
     }
 
     @Override
-    public void onWalk(RoomUnit roomUnit, Room room, Object[] objects) throws Exception {
-
-    }
+    public void onWalk(RoomUnit roomUnit, Room room, Object[] objects) throws Exception {}
 
     @Override
     public void onClick(GameClient client, Room room, Object[] objects) throws Exception {
-        if (room == null || !((client != null && room.hasRights(client.getHabbo())) || (objects.length >= 2 && objects[1] instanceof WiredEffectType)))
-            return;
+        if (room == null
+                || !((client != null && room.hasRights(client.getHabbo()))
+                        || (objects.length >= 2 && objects[1] instanceof WiredEffectType))) return;
 
-        if (this.getExtradata() == null || this.getExtradata().isEmpty() || this.getExtradata().length() == 0) {
+        if (this.getExtradata() == null
+                || this.getExtradata().isEmpty()
+                || this.getExtradata().length() == 0) {
             this.setExtradata("0");
         }
 
@@ -96,11 +101,10 @@ public class InteractionWiredHighscore extends HabboItem {
             LOGGER.error("Caught exception", e);
         }
 
-        if(client != null && !(objects.length >= 2 && objects[1] instanceof WiredEffectType)) {
+        if (client != null && !(objects.length >= 2 && objects[1] instanceof WiredEffectType)) {
             WiredManager.triggerFurniStateChanged(room, client.getHabbo().getRoomUnit(), this);
         }
     }
-
 
     @Override
     public void serializeExtradata(ServerMessage serverMessage) {
@@ -111,14 +115,14 @@ public class InteractionWiredHighscore extends HabboItem {
 
         if (this.data != null) {
             int size = this.data.size();
-            if(size > 50) {
+            if (size > 50) {
                 size = 50;
             }
             serverMessage.appendInt(size);
 
             int count = 0;
             for (WiredHighscoreRow row : this.data) {
-                if(count < 50) {
+                if (count < 50) {
                     serverMessage.appendInt(row.getValue());
 
                     serverMessage.appendInt(row.getUsers().size());
@@ -138,7 +142,42 @@ public class InteractionWiredHighscore extends HabboItem {
     @Override
     public void onPlace(Room room) {
         this.reloadData();
+        this.warnIfNoGameCanEnd(room);
         super.onPlace(room);
+    }
+
+    /**
+     * A board is only ever written by {@link com.eu.habbo.habbohotel.games.Game#onEnd()}, which is
+     * reached through a game timer. Placed in a room without one it stays empty forever and says
+     * nothing about why, which is indistinguishable from a broken board.
+     */
+    private void warnIfNoGameCanEnd(Room room) {
+        if (canEndAGame(room)) {
+            return;
+        }
+
+        WiredManager.noteUnreachable(
+                room.getId(),
+                "A highscore board only fills when a game ends, and this room has no game timer",
+                this.getBaseItem().getName(),
+                this.getId());
+    }
+
+    /**
+     * Whether anything in the room could bring a game to an end. A room with no timer and no
+     * up-counter can never reach Game.onEnd(), which is the only writer a board has.
+     */
+    static boolean canEndAGame(Room room) {
+        if (room == null || room.getRoomSpecialTypes() == null) {
+            return false;
+        }
+
+        return !room.getRoomSpecialTypes()
+                        .getItemsOfType(InteractionGameTimer.class)
+                        .isEmpty()
+                || !room.getRoomSpecialTypes()
+                        .getItemsOfType(InteractionGameUpCounter.class)
+                        .isEmpty();
     }
 
     @Override
@@ -149,6 +188,9 @@ public class InteractionWiredHighscore extends HabboItem {
     }
 
     public void reloadData() {
-        this.data = Emulator.getGameEnvironment().getItemManager().getHighscoreManager().getHighscoreRowsForItem(this.getId(), this.clearType, this.scoreType);
+        this.data = Emulator.getGameEnvironment()
+                .getItemManager()
+                .getHighscoreManager()
+                .getHighscoreRowsForItem(this.getId(), this.clearType, this.scoreType);
     }
 }

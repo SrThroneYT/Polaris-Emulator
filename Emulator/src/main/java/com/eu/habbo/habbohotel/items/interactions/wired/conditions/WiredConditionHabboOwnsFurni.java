@@ -13,10 +13,9 @@ import com.eu.habbo.habbohotel.wired.core.WiredContext;
 import com.eu.habbo.habbohotel.wired.core.WiredManager;
 import com.eu.habbo.habbohotel.wired.core.WiredSourceUtil;
 import com.eu.habbo.messages.ServerMessage;
-import java.util.HashSet;
-
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.HashSet;
 import java.util.List;
 
 /**
@@ -30,7 +29,7 @@ public class WiredConditionHabboOwnsFurni extends InteractionWiredCondition {
     protected static final int QUANTIFIER_ALL = 0;
     protected static final int QUANTIFIER_ANY = 1;
 
-    public static final WiredConditionType type = WiredConditionType.HAS_ALTITUDE;
+    public static final WiredConditionType type = WiredConditionType.FURNI_PROPERTY;
 
     protected final HashSet<HabboItem> items;
     protected int furniSource = WiredSourceUtil.SOURCE_TRIGGER;
@@ -41,7 +40,8 @@ public class WiredConditionHabboOwnsFurni extends InteractionWiredCondition {
         this.items = new HashSet<>();
     }
 
-    public WiredConditionHabboOwnsFurni(int id, int userId, Item item, String extradata, int limitedStack, int limitedSells) {
+    public WiredConditionHabboOwnsFurni(
+            int id, int userId, Item item, String extradata, int limitedStack, int limitedSells) {
         super(id, userId, item, extradata, limitedStack, limitedSells);
         this.items = new HashSet<>();
     }
@@ -91,7 +91,8 @@ public class WiredConditionHabboOwnsFurni extends InteractionWiredCondition {
         }
 
         var owned = new HashSet<Integer>();
-        for (HabboItem item : habbo.getInventory().getItemsComponent().getItems().values()) {
+        for (HabboItem item :
+                habbo.getInventory().getItemsComponent().getItems().values()) {
             if (item != null && item.getBaseItem() != null) {
                 owned.add(item.getBaseItem().getId());
             }
@@ -118,11 +119,11 @@ public class WiredConditionHabboOwnsFurni extends InteractionWiredCondition {
 
     @Override
     public String getWiredData() {
-        return WiredManager.getGson().toJson(new JsonData(
-                this.furniSource,
-                this.quantifier,
-                this.items.stream().map(HabboItem::getId).toList()
-        ));
+        return WiredManager.getGson()
+                .toJson(new JsonData(
+                        this.furniSource,
+                        this.quantifier,
+                        this.items.stream().map(HabboItem::getId).toList()));
     }
 
     @Override
@@ -257,7 +258,10 @@ public class WiredConditionHabboOwnsFurni extends InteractionWiredCondition {
 
     protected int normalizeFurniSource(int value) {
         return switch (value) {
-            case WiredSourceUtil.SOURCE_SELECTED, WiredSourceUtil.SOURCE_SELECTOR, WiredSourceUtil.SOURCE_SIGNAL, WiredSourceUtil.SOURCE_TRIGGER -> value;
+            case WiredSourceUtil.SOURCE_SELECTED,
+                    WiredSourceUtil.SOURCE_SELECTOR,
+                    WiredSourceUtil.SOURCE_SIGNAL,
+                    WiredSourceUtil.SOURCE_TRIGGER -> value;
             default -> WiredSourceUtil.SOURCE_TRIGGER;
         };
     }

@@ -7,11 +7,10 @@ import com.eu.habbo.habbohotel.rooms.Room;
 import com.eu.habbo.habbohotel.rooms.RoomUnit;
 import com.eu.habbo.habbohotel.users.Habbo;
 import com.eu.habbo.habbohotel.users.HabboItem;
-import com.eu.habbo.habbohotel.wired.core.WiredManager;
 import com.eu.habbo.habbohotel.wired.WiredTriggerType;
 import com.eu.habbo.habbohotel.wired.core.WiredEvent;
+import com.eu.habbo.habbohotel.wired.core.WiredManager;
 import com.eu.habbo.messages.ServerMessage;
-
 import java.sql.ResultSet;
 import java.sql.SQLException;
 
@@ -30,7 +29,8 @@ public class WiredTriggerHabboSaysKeyword extends InteractionWiredTrigger {
         super(set, baseItem);
     }
 
-    public WiredTriggerHabboSaysKeyword(int id, int userId, Item item, String extradata, int limitedStack, int limitedSells) {
+    public WiredTriggerHabboSaysKeyword(
+            int id, int userId, Item item, String extradata, int limitedStack, int limitedSells) {
         super(id, userId, item, extradata, limitedStack, limitedSells);
     }
 
@@ -49,7 +49,8 @@ public class WiredTriggerHabboSaysKeyword extends InteractionWiredTrigger {
         }
 
         Habbo habbo = room.getHabbo(roomUnit);
-        return !this.ownerOnly || (habbo != null && room.getOwnerId() == habbo.getHabboInfo().getId());
+        return !this.ownerOnly
+                || (habbo != null && room.getOwnerId() == habbo.getHabboInfo().getId());
     }
 
     @Deprecated
@@ -60,33 +61,44 @@ public class WiredTriggerHabboSaysKeyword extends InteractionWiredTrigger {
 
     @Override
     public String getWiredData() {
-        return WiredManager.getGson().toJson(new JsonData(
-            this.hideMessage,
-            this.ownerOnly,
-            this.key,
-            this.matchMode
-        ));
+        return WiredManager.getGson().toJson(new JsonData(this.hideMessage, this.ownerOnly, this.key, this.matchMode));
     }
 
     @Override
     public void loadWiredData(ResultSet set, Room room) throws SQLException {
+        this.onPickUp();
+
         String wiredData = set.getString("wired_data");
+        if (wiredData == null || wiredData.isEmpty()) {
+            return;
+        }
 
         if (wiredData.startsWith("{")) {
-            JsonData data = WiredManager.getGson().fromJson(wiredData, JsonData.class);
+            JsonData data;
+            try {
+                data = WiredManager.getGson().fromJson(wiredData, JsonData.class);
+            } catch (RuntimeException ignored) {
+                // A row that cannot be read is no configuration; the defaults stand.
+                return;
+            }
+            if (data == null) {
+                return;
+            }
+
             this.ownerOnly = data.ownerOnly;
             this.hideMessage = data.hideMessage;
-            this.key = data.key;
+            // A row saved without a keyword must not leave it null: matches() reads its length.
+            this.key = (data.key == null) ? "" : data.key;
             this.matchMode = this.normalizeMatchMode(data.matchMode);
-        } else {
-            String[] data = wiredData.split("\t");
+            return;
+        }
 
-            if (data.length == 2) {
-                this.ownerOnly = data[0].equalsIgnoreCase("1");
-                this.key = data[1];
-                this.hideMessage = false;
-                this.matchMode = MATCH_CONTAINS;
-            }
+        String[] data = wiredData.split("\t");
+        if (data.length == 2) {
+            this.ownerOnly = data[0].equalsIgnoreCase("1");
+            this.key = data[1];
+            this.hideMessage = false;
+            this.matchMode = MATCH_CONTAINS;
         }
     }
 
