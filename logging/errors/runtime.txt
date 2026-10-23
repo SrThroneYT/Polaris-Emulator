@@ -1,0 +1,50 @@
+20:14:17.920 [HabExec-1-1] ERROR com.eu.habbo.core.ConfigurationManager - Config key not found youtube.apikey
+20:14:19.346 [main] ERROR com.eu.habbo.habbohotel.catalog.CatalogManager - Catalog value validation: catalog item 118: limited_sells must be between zero and limited_stack
+20:14:19.350 [main] ERROR com.eu.habbo.habbohotel.catalog.CatalogManager - Catalog value validation: catalog item 211: limited_sells must be between zero and limited_stack
+20:14:19.350 [main] ERROR com.eu.habbo.habbohotel.catalog.CatalogManager - Catalog value validation: catalog item 212: limited_sells must be between zero and limited_stack
+20:14:19.350 [main] ERROR com.eu.habbo.habbohotel.catalog.CatalogManager - Catalog value validation: catalog item 215: limited_sells must be between zero and limited_stack
+20:14:19.351 [main] ERROR com.eu.habbo.habbohotel.catalog.CatalogManager - Catalog value validation: catalog item 233: limited_sells must be between zero and limited_stack
+20:14:19.351 [main] ERROR com.eu.habbo.habbohotel.catalog.CatalogManager - Catalog value validation: catalog item 234: limited_sells must be between zero and limited_stack
+20:14:19.352 [main] ERROR com.eu.habbo.habbohotel.catalog.CatalogManager - Catalog value validation: catalog item 254: limited_sells must be between zero and limited_stack
+20:14:19.353 [main] ERROR com.eu.habbo.habbohotel.catalog.CatalogManager - Catalog value validation: catalog item 259: limited_sells must be between zero and limited_stack
+20:14:19.353 [main] ERROR com.eu.habbo.habbohotel.catalog.CatalogManager - Catalog value validation: catalog item 262: limited_sells must be between zero and limited_stack
+20:14:19.354 [main] ERROR com.eu.habbo.habbohotel.catalog.CatalogManager - Catalog value validation: catalog item 271: limited_sells must be between zero and limited_stack
+20:14:19.415 [main] ERROR com.eu.habbo.habbohotel.catalog.CatalogManager - Catalog value validation: catalog item 2162: limited_sells must be between zero and limited_stack
+20:14:19.424 [main] ERROR com.eu.habbo.habbohotel.catalog.CatalogManager - Catalog value validation: catalog item 2519: limited_sells must be between zero and limited_stack
+20:14:19.435 [main] ERROR com.eu.habbo.habbohotel.catalog.CatalogManager - Catalog value validation: catalog item 2997: limited_sells must be between zero and limited_stack
+20:14:19.438 [main] ERROR com.eu.habbo.habbohotel.catalog.CatalogManager - Catalog value validation: catalog item 3126: limited_sells must be between zero and limited_stack
+20:14:23.404 [main] ERROR com.eu.habbo.core.TextsManager - Text key not found: commands.keys.cmd_roomfx
+20:14:58.219 [main] ERROR com.eu.habbo.util.imager.badges.BadgeImager - BadgeImager output folder: /var/www/gamedata/badgeparts does not exist!
+20:14:58.799 [main] ERROR com.eu.habbo.plugin.PluginManager - Could not pass event com.eu.habbo.plugin.events.emulator.EmulatorLoadedEvent to Nitro Websockets
+20:14:58.799 [main] ERROR com.eu.habbo.plugin.PluginManager - Caught exception
+java.net.BindException: Address already in use: bind
+	at java.base/sun.nio.ch.Net.bind0(Native Method)
+	at java.base/sun.nio.ch.Net.bind(Unknown Source)
+	at java.base/sun.nio.ch.ServerSocketChannelImpl.netBind(Unknown Source)
+	at java.base/sun.nio.ch.ServerSocketChannelImpl.bind(Unknown Source)
+	at io.netty.channel.socket.nio.NioServerSocketChannel.doBind(NioServerSocketChannel.java:148)
+	at io.netty.channel.AbstractChannel$AbstractUnsafe.bind(AbstractChannel.java:431)
+	at io.netty.channel.DefaultChannelPipeline$HeadContext.bind(DefaultChannelPipeline.java:1395)
+	at io.netty.channel.AbstractChannelHandlerContext.bind(AbstractChannelHandlerContext.java:500)
+	at io.netty.channel.DefaultChannelPipeline.bind(DefaultChannelPipeline.java:1036)
+	at io.netty.channel.Channel.bind(Channel.java:302)
+	at io.netty.bootstrap.AbstractBootstrap$1.run(AbstractBootstrap.java:381)
+	at io.netty.util.concurrent.AbstractEventExecutor.runTask(AbstractEventExecutor.java:148)
+	at io.netty.util.concurrent.AbstractEventExecutor.safeExecute(AbstractEventExecutor.java:141)
+	at io.netty.util.concurrent.SingleThreadEventExecutor.runAllTasks(SingleThreadEventExecutor.java:535)
+	at io.netty.channel.SingleThreadIoEventLoop.run(SingleThreadIoEventLoop.java:228)
+	at io.netty.util.concurrent.SingleThreadEventExecutor$5.run(SingleThreadEventExecutor.java:1214)
+	at io.netty.util.internal.ThreadExecutorMap$2.run(ThreadExecutorMap.java:74)
+	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)
+	at java.base/java.lang.Thread.run(Unknown Source)
+	Suppressed: java.util.concurrent.CompletionException: Rethrowing promise failure cause
+		at io.netty.util.concurrent.DefaultPromise.rethrowIfFailed(DefaultPromise.java:686)
+		at io.netty.util.concurrent.DefaultPromise.sync(DefaultPromise.java:420)
+		at io.netty.channel.DefaultChannelPromise.sync(DefaultChannelPromise.java:119)
+		at io.netty.channel.DefaultChannelPromise.sync(DefaultChannelPromise.java:30)
+		at org.krews.plugin.nitro.main.onEmulatorLoadedEvent(main.java:46)
+		at com.eu.habbo.plugin.PluginManager$HandlerInvocation.invoke(PluginManager.java:455)
+		at com.eu.habbo.plugin.PluginManager.fireEvent(PluginManager.java:264)
+		at com.eu.habbo.Emulator.main(Emulator.java:216)
+20:28:33.927 [GamePacketHandler-12-11] ERROR com.eu.habbo.core.TextsManager - Text key not found: seasonal.name.5
+20:28:33.927 [GamePacketHandler-12-11] ERROR com.eu.habbo.core.TextsManager - Text key not found: seasonal.name.5
