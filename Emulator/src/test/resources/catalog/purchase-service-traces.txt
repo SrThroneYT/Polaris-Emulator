@@ -107,6 +107,20 @@ buyer <- AlertPurchaseUnavailable(0)
 returned
 purchasing flag false
 
+== loyalty vip / offer of the credits window
+buyer <- AlertPurchaseFailed(0)
+returned
+purchasing flag false
+
+== loyalty vip / offer paid in points
+CatalogPaymentService.tryTake(credits 0, type 5, points 50) -> true
+stats.createSubscription(HABBO_CLUB, 2678400s) -> created
+buyer <- PurchaseOK(null)
+buyer <- InventoryRefresh()
+stats.run()
+returned
+purchasing flag false
+
 == offer / bot inventory full
 buyer alerted "<error.bots.max.inventory 25>"
 buyer <- AlertPurchaseUnavailable(0)
@@ -128,6 +142,24 @@ purchasing flag false
 == offer / from recent purchases
 LtdRaffleManager.enter(offer chair) -> false
 catalog.purchaseItem(recent purchases page, offer chair, count 1, "", free false)
+returned
+purchasing flag false
+
+== offer / from recent purchases, offer no longer in the catalog
+LtdRaffleManager.enter(null) -> false
+catalog.purchaseItem(recent purchases page, null, count 1, "", free false)
+returned
+purchasing flag false
+
+== offer / from recent purchases, page above the buyer's rank
+LtdRaffleManager.enter(null) -> false
+catalog.purchaseItem(recent purchases page, null, count 1, "", free false)
+returned
+purchasing flag false
+
+== offer / from recent purchases, page since disabled
+LtdRaffleManager.enter(null) -> false
+catalog.purchaseItem(recent purchases page, null, count 1, "", free false)
 returned
 purchasing flag false
 

@@ -11,6 +11,19 @@ import javax.sql.DataSource;
 
 public final class JdbcMessengerHistoryRepository implements MessengerHistoryRepository {
     private static final int CLEANUP_BATCH_SIZE = 1000;
+    /** How many legacy chatlog lines a direct conversation takes along when it gets its first stored message. */
+    static final int LEGACY_ADOPT_LIMIT = 500;
+
+    /**
+     * Users whose legacy private chatlogs have already been brought across. A repository
+     * is built per call, so this is shared; the backfill is idempotent, so an eviction
+     * only costs one extra run.
+     */
+    private static final com.github.benmanes.caffeine.cache.Cache<Integer, Boolean> MIGRATED_USERS =
+            com.github.benmanes.caffeine.cache.Caffeine.newBuilder()
+                    .maximumSize(50_000)
+                    .expireAfterWrite(java.time.Duration.ofHours(12))
+                    .build();
 
     private final DataSource dataSource;
 
@@ -152,7 +165,34 @@ public final class JdbcMessengerHistoryRepository implements MessengerHistoryRep
         }
     }
 
+    /**
+     * Brings a user's pre-messenger_conversations private chatlogs across, once.
+     *
+     * <p>This used to run on every {@code listConversations} call - so on every console
+     * open and every "mark as read" - and it is the heaviest thing here: an
+     * {@code INSERT ... SELECT ... GROUP BY} over all of that user's rows in
+     * {@code chatlogs_private}, which is MyISAM and takes a table lock, followed by an
+     * {@code INSERT IGNORE ... SELECT} whose {@code SUBSTRING_INDEX(direct_key, ...)}
+     * conditions cannot use an index and so scan {@code messenger_conversations} twice.
+     *
+     * <p>The backfill is idempotent, so remembering who has had it is enough; a bounded
+     * cache means an entry evicted after a long uptime only costs one extra run.
+     */
     private void ensureLegacyDirectConversations(int userId) {
+        if (MIGRATED_USERS.asMap().putIfAbsent(userId, Boolean.TRUE) != null) {
+            return;
+        }
+
+        try {
+            this.runLegacyBackfill(userId);
+        } catch (RuntimeException exception) {
+            // Not migrated after all: let the next call try again.
+            MIGRATED_USERS.invalidate(userId);
+            throw exception;
+        }
+    }
+
+    private void runLegacyBackfill(int userId) {
         String conversationsSql = """
                 INSERT INTO messenger_conversations (type, direct_key, created_at, updated_at)
                 SELECT 'direct',
@@ -299,6 +339,7 @@ public final class JdbcMessengerHistoryRepository implements MessengerHistoryRep
                     statement.addBatch();
                     statement.executeBatch();
                 }
+                adoptLegacyDirectHistory(connection, conversationId, senderId, recipientId);
                 MessengerStoredMessage stored =
                         insertMessage(connection, conversationId, senderId, type, message, metadata);
                 connection.commit();
@@ -311,6 +352,45 @@ public final class JdbcMessengerHistoryRepository implements MessengerHistoryRep
             }
         } catch (SQLException exception) {
             throw new IllegalStateException("failed to store direct messenger message", exception);
+        }
+    }
+
+    /**
+     * The first message stored for a direct conversation brings its legacy chatlogs_private lines across (the newest
+     * {@value #LEGACY_ADOPT_LIMIT}, oldest first): history reads messenger_messages alone once it has a row, so without
+     * this every line from before the conversation's first stored message would vanish from the history.
+     */
+    private void adoptLegacyDirectHistory(Connection connection, long conversationId, int firstUserId, int secondUserId)
+            throws SQLException {
+        try (PreparedStatement statement =
+                connection.prepareStatement("SELECT 1 FROM messenger_messages WHERE conversation_id = ? LIMIT 1")) {
+            statement.setLong(1, conversationId);
+            try (ResultSet result = statement.executeQuery()) {
+                if (result.next()) return;
+            }
+        }
+
+        String sql = """
+                INSERT INTO messenger_messages (conversation_id, sender_id, type, message, metadata, created_at)
+                SELECT ?, legacy.user_from_id, 0, LEFT(legacy.message, 255), NULL, FROM_UNIXTIME(legacy.timestamp)
+                FROM (
+                    SELECT id, user_from_id, message, timestamp
+                    FROM chatlogs_private
+                    WHERE ((user_from_id = ? AND user_to_id = ?) OR (user_from_id = ? AND user_to_id = ?))
+                      AND message <> ''
+                    ORDER BY id DESC
+                    LIMIT ?
+                ) legacy
+                ORDER BY legacy.id ASC
+                """;
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, conversationId);
+            statement.setInt(2, firstUserId);
+            statement.setInt(3, secondUserId);
+            statement.setInt(4, secondUserId);
+            statement.setInt(5, firstUserId);
+            statement.setInt(6, LEGACY_ADOPT_LIMIT);
+            statement.executeUpdate();
         }
     }
 

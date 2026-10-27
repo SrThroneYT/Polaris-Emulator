@@ -1,6 +1,7 @@
 package com.eu.habbo.habbohotel.catalog;
 
 import com.eu.habbo.Emulator;
+import com.eu.habbo.core.ConfigurationManager;
 import com.eu.habbo.habbohotel.achievements.AchievementManager;
 import com.eu.habbo.habbohotel.bots.Bot;
 import com.eu.habbo.habbohotel.catalog.layouts.BadgeDisplayLayout;
@@ -119,9 +120,11 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalInt;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.IntUnaryOperator;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -307,6 +310,9 @@ public class CatalogManager {
     public final Map<Integer, ClothItem> clothing;
     public final Int2IntMap offerDefs;
     public final Int2IntMap buildersClubOfferDefs;
+    /** The base item every recycler box is made of. */
+    public static final String RECYCLER_BOX = "ecotron_box";
+
     public final Item ecotronItem;
     public final Map<Integer, CatalogLimitedConfiguration> limitedNumbers;
     private final List<Voucher> vouchers;
@@ -340,7 +346,7 @@ public class CatalogManager {
 
         if (initialize) {
             this.initialize();
-            this.ecotronItem = Emulator.getGameEnvironment().getItemManager().getItem("ecotron_box");
+            this.ecotronItem = Emulator.getGameEnvironment().getItemManager().getItem(RECYCLER_BOX);
             LOGGER.info("Catalog Manager -> Loaded! ({} MS)", System.currentTimeMillis() - millis);
         } else {
             this.ecotronItem = null;
@@ -391,13 +397,13 @@ public class CatalogManager {
             version = this.catalogVersion.get();
             if (isCurrent(current, version)) return current;
 
-            // CatalogPage.getChildPages() is a plain HashMap, mutated without a monitor by
-            // CatalogAdminCacheSync.reparentPage/detachDeletedPage. A build that races one of
-            // those admin edits can throw ConcurrentModificationException while iterating and
-            // sorting a page's children. Retry a few times against the latest version instead of
-            // surfacing a transient admin-edit race to whichever reader happened to trigger the
-            // rebuild; if it keeps failing, something is genuinely wrong and the last exception
-            // is rethrown.
+            // CatalogPage.getChildPages() is a concurrent map, so the admin edits in
+            // CatalogAdminCacheSync.reparentPage/detachDeletedPage no longer break a build. A
+            // plugin that edits another catalog collection in place can still throw
+            // ConcurrentModificationException while a build walks it. Retry a few times against
+            // the latest version instead of surfacing that transient race to whichever reader
+            // happened to trigger the rebuild; if it keeps failing, something is genuinely wrong
+            // and the last exception is rethrown.
             ConcurrentModificationException lastFailure = null;
             for (int attempt = 0; attempt < 3; attempt++) {
                 version = this.catalogVersion.get();
@@ -914,6 +920,30 @@ public class CatalogManager {
             return;
         }
 
+        // Resolve what the voucher hands out before using it up. A voucher pointing at a
+        // catalogue offer that no longer exists was claimed first and then delivered
+        // nothing, silently: the code was spent and the user got nothing for it.
+        CatalogItem voucherItem = null;
+        if (voucher.catalogItemId > 0) {
+            voucherItem = this.getCatalogItem(voucher.catalogItemId);
+            if (voucherItem == null) {
+                LOGGER.warn(
+                        "Voucher {} points at catalog item {}, which does not exist; refusing it unspent",
+                        voucher.code,
+                        voucher.catalogItemId);
+                client.sendResponse(new RedeemVoucherErrorComposer(RedeemVoucherErrorComposer.TECHNICAL_ERROR));
+                return;
+            }
+        }
+
+        // A wallet that cannot take the voucher's value would refuse the grant after the code was spent.
+        if (!fitsWallet(habbo.getHabboInfo().getCredits(), voucher.credits)
+                || (voucher.points > 0
+                        && !fitsWallet(habbo.getHabboInfo().getCurrencyAmount(voucher.pointsType), voucher.points))) {
+            client.sendResponse(new RedeemVoucherErrorComposer(RedeemVoucherErrorComposer.TECHNICAL_ERROR));
+            return;
+        }
+
         Voucher.ClaimResult claimResult =
                 voucher.claimForUser(habbo.getHabboInfo().getId());
         switch (claimResult) {
@@ -943,14 +973,16 @@ public class CatalogManager {
             client.getHabbo().giveCredits(voucher.credits);
         }
 
-        if (voucher.catalogItemId > 0) {
-            CatalogItem item = this.getCatalogItem(voucher.catalogItemId);
-            if (item != null) {
-                this.purchaseItem(null, item, client.getHabbo(), 1, "", true);
-            }
+        if (voucherItem != null) {
+            this.purchaseItem(null, voucherItem, client.getHabbo(), 1, "", true);
         }
 
         client.sendResponse(new RedeemVoucherOKComposer());
+    }
+
+    /** Whether a balance can take {@code amount} more without overflowing. */
+    static boolean fitsWallet(int balance, int amount) {
+        return amount <= 0 || (long) balance + amount <= Integer.MAX_VALUE;
     }
 
     public boolean deleteVoucher(Voucher voucher) {
@@ -1128,22 +1160,29 @@ public class CatalogManager {
         return true;
     }
 
-    public Item getRandomRecyclerPrize() {
-        int level = 1;
+    /** The highest recycler rarity level: 6 = mythic, 5 = legendary, ..., 1 = common. */
+    public static final int RECYCLER_MAX_RARITY = 6;
 
-        if (Emulator.getRandom().nextInt(Emulator.getConfig().getInt("hotel.ecotron.rarity.chance.5")) + 1
-                == Emulator.getConfig().getInt("hotel.ecotron.rarity.chance.5")) {
-            level = 5;
-        } else if (Emulator.getRandom().nextInt(Emulator.getConfig().getInt("hotel.ecotron.rarity.chance.4")) + 1
-                == Emulator.getConfig().getInt("hotel.ecotron.rarity.chance.4")) {
-            level = 4;
-        } else if (Emulator.getRandom().nextInt(Emulator.getConfig().getInt("hotel.ecotron.rarity.chance.3")) + 1
-                == Emulator.getConfig().getInt("hotel.ecotron.rarity.chance.3")) {
-            level = 3;
-        } else if (Emulator.getRandom().nextInt(Emulator.getConfig().getInt("hotel.ecotron.rarity.chance.2")) + 1
-                == Emulator.getConfig().getInt("hotel.ecotron.rarity.chance.2")) {
-            level = 2;
+    /**
+     * The rarity of one recycle: levels {@link #RECYCLER_MAX_RARITY} down to 2 are tried in turn, each with a 1 in N
+     * chance ({@code hotel.ecotron.rarity.chance.N}); a level without a chance (0 or unset) is skipped, and when none
+     * hits the prize is level 1.
+     */
+    static int drawRecyclerRarity(IntUnaryOperator chanceForLevel, IntUnaryOperator nextInt) {
+        for (int level = RECYCLER_MAX_RARITY; level >= 2; level--) {
+            int chance = chanceForLevel.applyAsInt(level);
+
+            if (chance > 0 && nextInt.applyAsInt(chance) + 1 == chance) return level;
         }
+
+        return 1;
+    }
+
+    public Item getRandomRecyclerPrize() {
+        ConfigurationManager config = Emulator.getConfig();
+        Random random = Emulator.getRandom();
+        int level = drawRecyclerRarity(
+                rarity -> config.getInt("hotel.ecotron.rarity.chance." + rarity, 0), random::nextInt);
 
         synchronized (this.prizes) {
             Set<Item> levelPrizes = this.prizes.get(level);
@@ -2420,10 +2459,13 @@ public class CatalogManager {
             }
 
             Map<Integer, EffectsComponent.HabboEffect> effects = new HashMap<>();
+            // The offer says how long its effect lasts (catalog_items.extradata, 0 for
+            // permanent); the legacy path at purchaseEffect already honours it.
+            int effectDuration = item.getEffectDuration();
             for (Map.Entry<Integer, Integer> requested : requestedEffects.entrySet()) {
                 for (int count = 0; count < requested.getValue(); count++) {
                     EffectsComponent.HabboEffect effect = EffectsComponent.persistEffect(
-                            connection, habbo.getHabboInfo().getId(), requested.getKey(), 86400);
+                            connection, habbo.getHabboInfo().getId(), requested.getKey(), effectDuration);
                     effects.put(requested.getKey(), effect);
                 }
             }

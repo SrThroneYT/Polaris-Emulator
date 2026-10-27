@@ -5,9 +5,11 @@ import com.eu.habbo.habbohotel.gameclients.GameClient;
 import com.eu.habbo.habbohotel.items.Item;
 import com.eu.habbo.habbohotel.items.interactions.InteractionWiredExtra;
 import com.eu.habbo.habbohotel.items.interactions.wired.WiredSettings;
+import com.eu.habbo.habbohotel.permissions.Permission;
 import com.eu.habbo.habbohotel.rooms.Room;
 import com.eu.habbo.habbohotel.rooms.RoomUnit;
 import com.eu.habbo.habbohotel.rooms.RoomWiredVariableCatalog;
+import com.eu.habbo.habbohotel.users.Habbo;
 import com.eu.habbo.habbohotel.wired.arrays.WiredArrayDefinition;
 import com.eu.habbo.habbohotel.wired.arrays.WiredArrayVariableDefinition;
 import com.eu.habbo.habbohotel.wired.arrays.WiredArrayVariableType;
@@ -78,6 +80,18 @@ public class WiredExtraVariableReference extends InteractionWiredExtra
             throw new WiredSaveException("wiredfurni.error.variables.reference.valid");
         }
 
+        // One reference per shared variable in a room: another box already linked to it is refused (AIR).
+        if (room.getRoomSpecialTypes() != null) {
+            for (InteractionWiredExtra extra : room.getRoomSpecialTypes().getExtras()) {
+                if (extra instanceof WiredExtraVariableReference other
+                        && other.getId() != this.getId()
+                        && other.getSourceRoomId() == definition.getRoomId()
+                        && other.getSourceVariableItemId() == definition.getItemId()) {
+                    throw new WiredSaveException("wiredfurni.error.variables.reference.already_exists");
+                }
+            }
+        }
+
         this.variableName = normalizedName;
         this.sourceRoomId = definition.getRoomId();
         this.sourceRoomName = sanitizeLabel(definition.getRoomName());
@@ -85,11 +99,22 @@ public class WiredExtraVariableReference extends InteractionWiredExtra
         this.sourceVariableName = definition.getName();
         this.sourceTargetType = definition.getTargetType();
         this.hasValue = definition.hasValue();
-        this.readOnly = config.readOnly;
+        // The shared variable lives in another room of the same owner. Writing through the reference
+        // reaches that room, where the editor may hold no rights at all, so only the owner (or staff who
+        // own any room) may save a writable reference; anyone else gets a read-only one.
+        this.readOnly = config.readOnly || !mayWriteSource(room, gameClient);
         this.arrayDefinition = definition.getArrayDefinition();
 
         room.getUserVariableManager().broadcastSnapshot();
         return true;
+    }
+
+    static boolean mayWriteSource(Room room, GameClient gameClient) {
+        Habbo editor = gameClient == null ? null : gameClient.getHabbo();
+
+        return editor != null
+                && (editor.getHabboInfo().getId() == room.getOwnerId()
+                        || editor.hasPermission(Permission.ACC_ANYROOMOWNER));
     }
 
     @Override
