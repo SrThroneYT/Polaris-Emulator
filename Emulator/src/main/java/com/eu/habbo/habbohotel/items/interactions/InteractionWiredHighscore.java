@@ -11,6 +11,7 @@ import com.eu.habbo.habbohotel.users.HabboItem;
 import com.eu.habbo.habbohotel.wired.WiredEffectType;
 import com.eu.habbo.habbohotel.wired.core.WiredManager;
 import com.eu.habbo.habbohotel.wired.highscores.WiredHighscoreClearType;
+import com.eu.habbo.habbohotel.wired.highscores.WiredHighscoreManager;
 import com.eu.habbo.habbohotel.wired.highscores.WiredHighscoreRow;
 import com.eu.habbo.habbohotel.wired.highscores.WiredHighscoreScoreType;
 import com.eu.habbo.messages.ServerMessage;
@@ -108,7 +109,8 @@ public class InteractionWiredHighscore extends HabboItem {
 
     @Override
     public void serializeExtradata(ServerMessage serverMessage) {
-        serverMessage.appendInt(6);
+        // Highscore stuff data; the limited flag tells the client the LTD numbers super appends follow.
+        serverMessage.appendInt(6 | (this.isLimited() ? 256 : 0));
         serverMessage.appendString(this.getExtradata());
         serverMessage.appendInt(this.scoreType.type);
         serverMessage.appendInt(this.clearType.type);
@@ -187,10 +189,15 @@ public class InteractionWiredHighscore extends HabboItem {
         }
     }
 
+    /**
+     * Reads the board again, first dropping the rows no reader can see any more (past periods compacted to each
+     * team's best and worst score): runs when the board is loaded, after a game and at midnight.
+     */
     public void reloadData() {
-        this.data = Emulator.getGameEnvironment()
-                .getItemManager()
-                .getHighscoreManager()
-                .getHighscoreRowsForItem(this.getId(), this.clearType, this.scoreType);
+        WiredHighscoreManager manager =
+                Emulator.getGameEnvironment().getItemManager().getHighscoreManager();
+
+        manager.compact(this.getId(), this.clearType, this.scoreType);
+        this.data = manager.getHighscoreRowsForItem(this.getId(), this.clearType, this.scoreType);
     }
 }
