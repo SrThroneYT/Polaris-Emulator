@@ -26,6 +26,8 @@ import com.eu.habbo.plugin.events.emulator.EmulatorStoppedEvent;
 import com.eu.habbo.threading.ThreadPooling;
 import com.eu.habbo.util.imager.badges.BadgeImager;
 import com.eu.habbo.util.logback.ConsoleStyle;
+import com.websockets.plugin.WebsocketsManager;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
@@ -55,6 +57,8 @@ import java.util.regex.Pattern;
 import org.fusesource.jansi.AnsiConsole;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+// import com.srth.plugin.RoleplayWebsocketsRoomsInfo;
 
 public final class Emulator {
 
@@ -194,6 +198,18 @@ public final class Emulator {
                 return;
             }
 
+            // ------------------------------------
+            // CREANDO LOS PLUGINS
+            LOGGER.info("--------------------------------------------------");
+            // RoleplayWebsocketsRoomsInfo roleplayWebsocketsRoomsInfo = new RoleplayWebsocketsRoomsInfo();
+            WebsocketsManager websocketsManager = new WebsocketsManager();
+
+            // ------------------------------------
+            // Registrando los plugins
+            // ------------------------------------
+            // Emulator.pluginManager.registerPlugin(roleplayWebsocketsRoomsInfo);
+            Emulator.pluginManager.registerPlugin(websocketsManager);
+
             LOGGER.info("Polaris has successfully loaded.");
             int threads = Emulator.getConfig().getInt("runtime.threads");
             LOGGER.info("System launched in: {}ms. Using {} threads!", (System.nanoTime() - startTime) / 1e6, threads);
@@ -210,6 +226,13 @@ public final class Emulator {
                 root.setLevel(Level.DEBUG);
                 LOGGER.debug("Debugging enabled.");
             }
+
+            // ------------------------------------
+            // Registrando el evento de encendido
+            // ------------------------------------
+            // Excepcion de encendido para rp
+            // roleplayWebsocketsRoomsInfo.onEnable();
+            websocketsManager.onEnable();
 
             Emulator.getPluginManager().fireEvent(new EmulatorLoadedEvent());
             Emulator.isReady = true;

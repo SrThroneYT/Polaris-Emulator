@@ -638,6 +638,15 @@ public class PluginManager {
         }
     }
 
+    public void registerPlugin(HabboPlugin plugin) {
+        synchronized (this.dispatchStateLock) {
+            this.plugins.add(plugin);
+            if (!this.reloading) {
+                this.publishDispatchSnapshot();
+            }
+        }
+    }
+
     private record RegistrationSource(HabboPlugin plugin, Set<Method> methods) {}
 
     private record HandlerLists(List<HandlerInvocation> legacy, List<HandlerInvocation> corrected) {}
