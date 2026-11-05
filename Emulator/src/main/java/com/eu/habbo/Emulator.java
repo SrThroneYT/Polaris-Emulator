@@ -26,7 +26,7 @@ import com.eu.habbo.plugin.events.emulator.EmulatorStoppedEvent;
 import com.eu.habbo.threading.ThreadPooling;
 import com.eu.habbo.util.imager.badges.BadgeImager;
 import com.eu.habbo.util.logback.ConsoleStyle;
-import com.websockets.plugin.WebsocketsManager;
+// import com.websockets.plugin.WebsocketsManager;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -202,13 +202,13 @@ public final class Emulator {
             // CREANDO LOS PLUGINS
             LOGGER.info("--------------------------------------------------");
             // RoleplayWebsocketsRoomsInfo roleplayWebsocketsRoomsInfo = new RoleplayWebsocketsRoomsInfo();
-            WebsocketsManager websocketsManager = new WebsocketsManager();
+            // WebsocketsManager websocketsManager = new WebsocketsManager();
 
             // ------------------------------------
             // Registrando los plugins
             // ------------------------------------
             // Emulator.pluginManager.registerPlugin(roleplayWebsocketsRoomsInfo);
-            Emulator.pluginManager.registerPlugin(websocketsManager);
+            // Emulator.pluginManager.registerPlugin(websocketsManager);
 
             LOGGER.info("Polaris has successfully loaded.");
             int threads = Emulator.getConfig().getInt("runtime.threads");
@@ -232,7 +232,7 @@ public final class Emulator {
             // ------------------------------------
             // Excepcion de encendido para rp
             // roleplayWebsocketsRoomsInfo.onEnable();
-            websocketsManager.onEnable();
+            // websocketsManager.onEnable();
 
             Emulator.getPluginManager().fireEvent(new EmulatorLoadedEvent());
             Emulator.isReady = true;
